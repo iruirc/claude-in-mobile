@@ -118,6 +118,34 @@ export class WDAManager {
     );
   }
 
+  private resolveSimulatorDestination(): string | undefined {
+    const isIOS = (name: string) =>
+      name.includes("iPhone") || name.includes("iPad");
+
+    // 1. Prefer a booted simulator — no extra boot time needed.
+    // 2. Fall back to first available simulator across any iOS runtime.
+    for (const filter of ["booted", "available"] as const) {
+      try {
+        const raw = execSync(`xcrun simctl list devices ${filter} -j`, {
+          encoding: "utf8",
+          stdio: "pipe",
+        });
+        const data = JSON.parse(raw);
+        for (const devices of Object.values(data.devices) as any[][]) {
+          for (const device of devices) {
+            if (isIOS(device.name)) {
+              return `platform=iOS Simulator,id=${device.udid}`;
+            }
+          }
+        }
+      } catch {
+        // continue to next filter
+      }
+    }
+
+    return undefined;
+  }
+
   private async buildWDAIfNeeded(wdaPath: string): Promise<void> {
     // Cannot check wdaPath/build — that directory exists in the npm package as
     // TypeScript compiled output and is always present, regardless of whether
@@ -140,14 +168,23 @@ export class WDAManager {
       }
     }
 
-    console.error("Building WebDriverAgent for first use...");
+    console.error("Building WebDriverAgent for first use (~2-5 min)...");
+
+    const destination = this.resolveSimulatorDestination();
+    if (!destination) {
+      throw new Error(
+        "No iOS simulator available for WebDriverAgent build.\n\n" +
+          "Open Xcode → Window → Devices and Simulators and add an iPhone simulator."
+      );
+    }
 
     try {
       execSync(
         "xcodebuild build-for-testing " +
           "-project WebDriverAgent.xcodeproj " +
           "-scheme WebDriverAgentRunner " +
-          "-destination 'platform=iOS Simulator,name=iPhone 14'",
+          `"-destination" "${destination}" ` +
+          "CODE_SIGNING_ALLOWED=NO",
         {
           cwd: wdaPath,
           timeout: this.buildTimeout,
