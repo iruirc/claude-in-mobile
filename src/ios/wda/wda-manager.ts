@@ -119,9 +119,25 @@ export class WDAManager {
   }
 
   private async buildWDAIfNeeded(wdaPath: string): Promise<void> {
-    const buildDir = path.join(wdaPath, "build");
-    if (fs.existsSync(buildDir)) {
-      return;
+    // Cannot check wdaPath/build — that directory exists in the npm package as
+    // TypeScript compiled output and is always present, regardless of whether
+    // xcodebuild has run. Check for the real Xcode artifact in DerivedData instead.
+    const derivedData = path.join(
+      os.homedir(),
+      "Library/Developer/Xcode/DerivedData"
+    );
+    if (fs.existsSync(derivedData)) {
+      const entries = fs
+        .readdirSync(derivedData)
+        .filter((e) => e.startsWith("WebDriverAgent-"));
+      for (const entry of entries) {
+        const app = path.join(
+          derivedData,
+          entry,
+          "Build/Products/Debug-iphonesimulator/WebDriverAgentRunner-Runner.app"
+        );
+        if (fs.existsSync(app)) return;
+      }
     }
 
     console.error("Building WebDriverAgent for first use...");
