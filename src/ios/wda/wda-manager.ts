@@ -81,6 +81,43 @@ export class WDAManager {
   }
 
   /**
+   * Kills orphaned `xcodebuild test-without-building` processes that
+   * still target the given simulator. Filters strictly on the device
+   * UDID and the WebDriverAgent scheme to avoid touching unrelated
+   * xcodebuild invocations.
+   */
+  private killStaleRunners(deviceId: string): void {
+    try {
+      const raw = execSync("ps -ax -o pid=,command=", {
+        encoding: "utf8",
+        stdio: "pipe",
+      });
+      const lines = raw.split("\n");
+      const myPid = process.pid;
+      for (const line of lines) {
+        if (!line.includes("xcodebuild")) continue;
+        if (!line.includes("test-without-building")) continue;
+        if (!line.includes("WebDriverAgentRunner")) continue;
+        if (!line.includes(`id=${deviceId}`)) continue;
+        const match = line.trim().match(/^(\d+)\s/);
+        if (!match) continue;
+        const pid = Number(match[1]);
+        if (!Number.isFinite(pid) || pid === myPid) continue;
+        try {
+          process.kill(pid, "SIGTERM");
+          console.error(
+            `  [wda cleanup] killed stale runner pid=${pid} for device ${deviceId}`
+          );
+        } catch {
+          // Process already gone or not killable — ignore.
+        }
+      }
+    } catch {
+      // ps unavailable — skip cleanup.
+    }
+  }
+
+  /**
    * Checks whether any booted simulator already has the WebDriverAgent
    * runner app installed. Used to skip an expensive xcodebuild build
    * when DerivedData has been cleaned but the app survives in the sim.
@@ -352,6 +389,12 @@ export class WDAManager {
         this.instances.delete(deviceId);
       }
     }
+
+    // Kill orphaned xcodebuild test-without-building processes that
+    // target this same simulator. Without this a previously crashed MCP
+    // process can leave the runner attached to the device, and a fresh
+    // xcodebuild fights it for the simulator until the 30s timeout.
+    this.killStaleRunners(deviceId);
 
     const wdaProcess = spawn(
       "xcodebuild",
