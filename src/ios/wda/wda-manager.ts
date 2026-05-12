@@ -52,6 +52,21 @@ export class WDAManager {
   }
 
   private async doLaunch(deviceId: string): Promise<WDAClient> {
+    // Reuse an already-running WDA (left over from another MCP process,
+    // a previous crashed run, or launched manually). Avoids spawning a
+    // second xcodebuild that would conflict over ports and the simulator.
+    const existingPort = await this.discoverRunningWDA();
+    if (existingPort !== undefined) {
+      const client = new WDAClient(existingPort);
+      try {
+        await client.ensureSession(deviceId);
+        this.clients.set(deviceId, client);
+        return client;
+      } catch {
+        // Discovered WDA belongs to another device/session — fall through.
+      }
+    }
+
     const wdaPath = await this.discoverWDA();
     await this.buildWDAIfNeeded(wdaPath);
     const port = await this.findFreePort();
@@ -63,6 +78,35 @@ export class WDAManager {
     this.clients.set(deviceId, client);
 
     return client;
+  }
+
+  /**
+   * Scans the WDA port range for a live WebDriverAgent instance.
+   * Returns the port if found, otherwise undefined.
+   * Probes are run in parallel so total wall time stays close to a single
+   * fetch timeout regardless of range size.
+   */
+  private async discoverRunningWDA(): Promise<number | undefined> {
+    const ports = Array.from({ length: 100 }, (_, i) => 8100 + i);
+    const probes = ports.map(async (port) => {
+      try {
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 500);
+        const r = await fetch(`http://localhost:${port}/status`, {
+          signal: controller.signal,
+        });
+        clearTimeout(timeout);
+        if (!r.ok) return undefined;
+        const j: any = await r.json();
+        // WDA /status returns { value: { os: { name: "iOS", ... }, ... } }
+        if (j?.value?.os?.name === "iOS") return port;
+      } catch {
+        // not listening / not WDA / timed out — ignore
+      }
+      return undefined;
+    });
+    const results = await Promise.all(probes);
+    return results.find((p): p is number => p !== undefined);
   }
 
   private async discoverWDA(): Promise<string> {
