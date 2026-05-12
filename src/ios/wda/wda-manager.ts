@@ -102,6 +102,38 @@ export class WDAManager {
   }
 
   /**
+   * Checks whether any booted simulator already has the WebDriverAgent
+   * runner app installed. Used to skip an expensive xcodebuild build
+   * when DerivedData has been cleaned but the app survives in the sim.
+   */
+  private isWDAInstalledOnAnySimulator(): boolean {
+    const wdaBundleId = "com.facebook.WebDriverAgentRunner.xctrunner";
+    try {
+      const raw = execSync("xcrun simctl list devices booted -j", {
+        encoding: "utf8",
+        stdio: "pipe",
+      });
+      const data = JSON.parse(raw);
+      for (const devices of Object.values(data.devices) as any[][]) {
+        for (const device of devices) {
+          try {
+            const apps = execSync(`xcrun simctl listapps ${device.udid}`, {
+              encoding: "utf8",
+              stdio: "pipe",
+            });
+            if (apps.includes(wdaBundleId)) return true;
+          } catch {
+            // listapps fails on some sim states — continue scanning
+          }
+        }
+      }
+    } catch {
+      // No booted simulators or simctl unavailable — fall through to build.
+    }
+    return false;
+  }
+
+  /**
    * Scans the WDA port range for a live WebDriverAgent instance.
    * Returns the port if found, otherwise undefined.
    * Probes are run in parallel so total wall time stays close to a single
@@ -211,6 +243,12 @@ export class WDAManager {
         if (fs.existsSync(app)) return;
       }
     }
+
+    // DerivedData may be cleaned even when WDA is still installed on a
+    // simulator (e.g. user ran "Clean Build Folder" after a successful
+    // install). xcodebuild test-without-building can run against the
+    // installed app, so a rebuild is unnecessary in that case.
+    if (this.isWDAInstalledOnAnySimulator()) return;
 
     console.error("Building WebDriverAgent for first use (~2-5 min)...");
 
