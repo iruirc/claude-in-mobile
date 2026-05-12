@@ -240,22 +240,11 @@ export class WDAManager {
     }
 
     try {
-      execSync(
-        "xcodebuild build-for-testing " +
-          "-project WebDriverAgent.xcodeproj " +
-          "-scheme WebDriverAgentRunner " +
-          `"-destination" "${destination}" ` +
-          "CODE_SIGNING_ALLOWED=NO",
-        {
-          cwd: wdaPath,
-          timeout: this.buildTimeout,
-          stdio: "pipe",
-        }
-      );
+      await this.runBuildWithProgress(wdaPath, destination);
     } catch (error: any) {
       throw new Error(
         "Failed to build WebDriverAgent.\n\n" +
-          `${error.stderr?.toString() || error.stdout?.toString() || error.message}\n\n` +
+          `${error.message}\n\n` +
           "Troubleshooting:\n" +
           "1. Install Xcode: https://apps.apple.com/app/xcode/id497799835\n" +
           "2. Install command line tools: xcode-select --install\n" +
@@ -263,6 +252,90 @@ export class WDAManager {
           "4. Set Xcode path: sudo xcode-select -s /Applications/Xcode.app"
       );
     }
+  }
+
+  /**
+   * Runs the WDA xcodebuild build-for-testing with progress visible in
+   * stderr — a periodic heartbeat with the latest non-empty xcodebuild
+   * line, so a stuck build is diagnosable without waiting for the full
+   * buildTimeout to fire.
+   */
+  private runBuildWithProgress(
+    wdaPath: string,
+    destination: string
+  ): Promise<void> {
+    return new Promise((resolve, reject) => {
+      const child = spawn(
+        "xcodebuild",
+        [
+          "build-for-testing",
+          "-project",
+          "WebDriverAgent.xcodeproj",
+          "-scheme",
+          "WebDriverAgentRunner",
+          "-destination",
+          destination,
+          "CODE_SIGNING_ALLOWED=NO",
+        ],
+        { cwd: wdaPath, stdio: "pipe" }
+      );
+
+      const startTime = Date.now();
+      const MAX_TAIL_CHARS = 8_000;
+      let tail = "";
+      let lastSignificantLine = "";
+
+      const consume = (data: Buffer) => {
+        const chunk = data.toString();
+        tail = (tail + chunk).slice(-MAX_TAIL_CHARS);
+        for (const line of chunk.split("\n")) {
+          const trimmed = line.trim();
+          if (trimmed.length > 0) lastSignificantLine = trimmed;
+        }
+      };
+      child.stdout?.on("data", consume);
+      child.stderr?.on("data", consume);
+
+      const heartbeat = setInterval(() => {
+        const elapsed = Math.round((Date.now() - startTime) / 1000);
+        const preview = lastSignificantLine.slice(0, 200);
+        console.error(`  [wda build] ${elapsed}s — ${preview}`);
+      }, 10_000);
+
+      const timeoutHandle = setTimeout(() => {
+        try {
+          child.kill("SIGKILL");
+        } catch {}
+        clearInterval(heartbeat);
+        reject(
+          new Error(
+            `xcodebuild build-for-testing exceeded ${this.buildTimeout}ms.\n\n` +
+              `Last output:\n${tail.slice(-2000)}`
+          )
+        );
+      }, this.buildTimeout);
+
+      child.on("exit", (code) => {
+        clearInterval(heartbeat);
+        clearTimeout(timeoutHandle);
+        if (code === 0) {
+          resolve();
+        } else {
+          reject(
+            new Error(
+              `xcodebuild build-for-testing exited with code ${code}.\n\n` +
+                `Last output:\n${tail.slice(-2000)}`
+            )
+          );
+        }
+      });
+
+      child.on("error", (err) => {
+        clearInterval(heartbeat);
+        clearTimeout(timeoutHandle);
+        reject(err);
+      });
+    });
   }
 
   private async launchWDA(
@@ -309,16 +382,30 @@ export class WDAManager {
 
     const MAX_OUTPUT_CHARS = 50_000;
     let output = "";
+    let lastSignificantLine = "";
+    const launchStart = Date.now();
     const appendOutput = (data: Buffer) => {
-      output += data.toString();
+      const chunk = data.toString();
+      output += chunk;
       if (output.length > MAX_OUTPUT_CHARS) {
         output = output.slice(output.length - MAX_OUTPUT_CHARS);
+      }
+      for (const line of chunk.split("\n")) {
+        const trimmed = line.trim();
+        if (trimmed.length > 0) lastSignificantLine = trimmed;
       }
     };
     wdaProcess.stdout?.on("data", appendOutput);
     wdaProcess.stderr?.on("data", appendOutput);
 
+    const heartbeat = setInterval(() => {
+      const elapsed = Math.round((Date.now() - launchStart) / 1000);
+      const preview = lastSignificantLine.slice(0, 200);
+      console.error(`  [wda launch] ${elapsed}s — ${preview}`);
+    }, 5_000);
+
     wdaProcess.on("exit", (code) => {
+      clearInterval(heartbeat);
       this.instances.delete(deviceId);
       this.clients.delete(deviceId);
     });
@@ -328,6 +415,7 @@ export class WDAManager {
       try {
         const health = await this.checkHealth(port);
         if (health) {
+          clearInterval(heartbeat);
           return;
         }
       } catch {
@@ -336,6 +424,7 @@ export class WDAManager {
       await new Promise((resolve) => setTimeout(resolve, 1000));
     }
 
+    clearInterval(heartbeat);
     try {
       process.kill(wdaProcess.pid!);
     } catch {}
