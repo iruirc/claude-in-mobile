@@ -10,6 +10,9 @@ export class WDAManager {
   private clients: Map<string, WDAClient> = new Map();
   /** Deduplicates parallel launches for the same device */
   private launchPromises: Map<string, Promise<WDAClient>> = new Map();
+  /** Cross-process lockfiles held by this process — released on exit */
+  private heldLockfiles: Set<string> = new Set();
+  private exitHandlerRegistered = false;
   private readonly startupTimeout = 30000;
   private readonly buildTimeout = 120000;
 
@@ -52,32 +55,140 @@ export class WDAManager {
   }
 
   private async doLaunch(deviceId: string): Promise<WDAClient> {
-    // Reuse an already-running WDA (left over from another MCP process,
-    // a previous crashed run, or launched manually). Avoids spawning a
-    // second xcodebuild that would conflict over ports and the simulator.
+    // Fast path — reuse an already-running WDA (left over from another
+    // MCP process, a previous crashed run, or launched manually). No
+    // need to acquire the cross-process lock if WDA is already serving.
+    const fast = await this.tryReuseRunningWDA(deviceId);
+    if (fast) return fast;
+
+    // Cross-process lock so that two MCP server processes do not both
+    // try to build/spawn WDA for the same simulator at the same time.
+    const release = await this.acquireDeviceLock(deviceId);
+    try {
+      // Re-check under the lock — another process may have just
+      // finished spawning while we were waiting.
+      const winner = await this.tryReuseRunningWDA(deviceId);
+      if (winner) return winner;
+
+      const wdaPath = await this.discoverWDA();
+      await this.buildWDAIfNeeded(wdaPath);
+      const port = await this.findFreePort();
+      await this.launchWDA(wdaPath, deviceId, port);
+
+      const client = new WDAClient(port);
+      await client.ensureSession(deviceId);
+
+      this.clients.set(deviceId, client);
+
+      return client;
+    } finally {
+      release();
+    }
+  }
+
+  private async tryReuseRunningWDA(
+    deviceId: string
+  ): Promise<WDAClient | undefined> {
     const existingPort = await this.discoverRunningWDA();
-    if (existingPort !== undefined) {
-      const client = new WDAClient(existingPort);
+    if (existingPort === undefined) return undefined;
+    const client = new WDAClient(existingPort);
+    try {
+      await client.ensureSession(deviceId);
+      this.clients.set(deviceId, client);
+      return client;
+    } catch {
+      // Discovered WDA belongs to another device/session — caller will
+      // proceed with a fresh spawn.
+      return undefined;
+    }
+  }
+
+  /**
+   * Acquires a cross-process lockfile keyed by deviceId. Lock holders
+   * are validated against `process.kill(pid, 0)`; a lockfile owned by a
+   * dead process or older than buildTimeout+startupTimeout is treated
+   * as stale and stolen. Returns a release callback.
+   */
+  private async acquireDeviceLock(deviceId: string): Promise<() => void> {
+    const safeId = deviceId.replace(/[^A-Za-z0-9._-]/g, "_");
+    const lockPath = path.join(os.tmpdir(), `claude-in-mobile-wda-${safeId}.lock`);
+    const deadline = Date.now() + this.buildTimeout + this.startupTimeout;
+    const staleAfter = this.buildTimeout + this.startupTimeout;
+
+    this.registerExitHandlerOnce();
+
+    while (Date.now() < deadline) {
       try {
-        await client.ensureSession(deviceId);
-        this.clients.set(deviceId, client);
-        return client;
-      } catch {
-        // Discovered WDA belongs to another device/session — fall through.
+        const fd = fs.openSync(
+          lockPath,
+          fs.constants.O_CREAT | fs.constants.O_EXCL | fs.constants.O_RDWR
+        );
+        fs.writeSync(
+          fd,
+          JSON.stringify({ pid: process.pid, startedAt: Date.now() })
+        );
+        fs.closeSync(fd);
+        this.heldLockfiles.add(lockPath);
+        return () => {
+          this.heldLockfiles.delete(lockPath);
+          try {
+            fs.unlinkSync(lockPath);
+          } catch {}
+        };
+      } catch (err: any) {
+        if (err.code !== "EEXIST") throw err;
+        let shouldSteal = false;
+        try {
+          const raw = fs.readFileSync(lockPath, "utf8");
+          const parsed = JSON.parse(raw) as { pid: number; startedAt: number };
+          let alive = true;
+          try {
+            process.kill(parsed.pid, 0);
+          } catch {
+            alive = false;
+          }
+          const stale = Date.now() - parsed.startedAt > staleAfter;
+          shouldSteal = !alive || stale;
+        } catch {
+          // Corrupt lockfile — treat as stale.
+          shouldSteal = true;
+        }
+        if (shouldSteal) {
+          try {
+            fs.unlinkSync(lockPath);
+          } catch {}
+          continue;
+        }
+        await new Promise((r) => setTimeout(r, 1000));
       }
     }
+    throw new Error(
+      `Timed out waiting for WDA lock on device ${deviceId}. ` +
+        `Another process appears to be building/launching WDA — ` +
+        `if you believe this is stuck, remove ${lockPath} and retry.`
+    );
+  }
 
-    const wdaPath = await this.discoverWDA();
-    await this.buildWDAIfNeeded(wdaPath);
-    const port = await this.findFreePort();
-    await this.launchWDA(wdaPath, deviceId, port);
-
-    const client = new WDAClient(port);
-    await client.ensureSession(deviceId);
-
-    this.clients.set(deviceId, client);
-
-    return client;
+  private registerExitHandlerOnce(): void {
+    if (this.exitHandlerRegistered) return;
+    this.exitHandlerRegistered = true;
+    const release = () => {
+      for (const lockPath of this.heldLockfiles) {
+        try {
+          fs.unlinkSync(lockPath);
+        } catch {}
+      }
+      this.heldLockfiles.clear();
+    };
+    process.on("exit", release);
+    process.on("SIGINT", () => {
+      release();
+      process.exit(130);
+    });
+    process.on("SIGTERM", () => {
+      release();
+      process.exit(143);
+    });
   }
 
   /**
