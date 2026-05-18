@@ -14,7 +14,9 @@ export class WDAManager {
   private heldLockfiles: Set<string> = new Set();
   private exitHandlerRegistered = false;
   private readonly startupTimeout = 30000;
-  private readonly buildTimeout = 120000;
+  // First WDA build is genuinely 2–5 min; 120 s guaranteed a spurious
+  // timeout on a cold DerivedData. Match reality.
+  private readonly buildTimeout = 600000;
 
   async ensureWDAReady(deviceId: string): Promise<WDAClient> {
     // Check existing client
@@ -235,27 +237,32 @@ export class WDAManager {
    */
   private isWDAInstalledOnAnySimulator(): boolean {
     const wdaBundleId = "com.facebook.WebDriverAgentRunner.xctrunner";
-    try {
-      const raw = execSync("xcrun simctl list devices booted -j", {
-        encoding: "utf8",
-        stdio: "pipe",
-      });
-      const data = JSON.parse(raw);
-      for (const devices of Object.values(data.devices) as any[][]) {
-        for (const device of devices) {
-          try {
-            const apps = execSync(`xcrun simctl listapps ${device.udid}`, {
-              encoding: "utf8",
-              stdio: "pipe",
-            });
-            if (apps.includes(wdaBundleId)) return true;
-          } catch {
-            // listapps fails on some sim states — continue scanning
+    // Scan booted first (cheap, listapps always works there), then every
+    // available device. The old code scanned only booted sims, so a
+    // present-but-not-yet-booted target forced an unnecessary full rebuild.
+    for (const filter of ["booted", "available"] as const) {
+      try {
+        const raw = execSync(`xcrun simctl list devices ${filter} -j`, {
+          encoding: "utf8",
+          stdio: "pipe",
+        });
+        const data = JSON.parse(raw);
+        for (const devices of Object.values(data.devices) as any[][]) {
+          for (const device of devices) {
+            try {
+              const apps = execSync(`xcrun simctl listapps ${device.udid}`, {
+                encoding: "utf8",
+                stdio: "pipe",
+              });
+              if (apps.includes(wdaBundleId)) return true;
+            } catch {
+              // listapps fails on shutdown sims / some states — keep scanning
+            }
           }
         }
+      } catch {
+        // simctl unavailable or no devices for this filter — try next
       }
-    } catch {
-      // No booted simulators or simctl unavailable — fall through to build.
     }
     return false;
   }

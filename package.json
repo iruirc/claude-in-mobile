@@ -9,6 +9,7 @@
   },
   "scripts": {
     "build": "tsc",
+    "wda": "bash scripts/ensure-wda.sh",
     "build:desktop": "cd desktop-companion && ./gradlew installDist",
     "build:all": "npm run build && npm run build:desktop",
     "watch": "tsc --watch",

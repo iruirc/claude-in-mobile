@@ -25,6 +25,36 @@ import { storeTools } from "./tools/store-tools.js";
 import { huaweiTools } from "./tools/huawei-tools.js";
 import { ruStoreTools } from "./tools/rustore-tools.js";
 import { detectClient, getConfigSnippet } from "./client-adapter.js";
+import { spawn } from "node:child_process";
+import { fileURLToPath } from "node:url";
+import { existsSync } from "node:fs";
+
+/**
+ * Best-effort, non-blocking WebDriverAgent prewarm. Spawns the idempotent
+ * scripts/ensure-wda.sh detached so a persistent WDA is serving on :8100
+ * before the first iOS ui_tree/tap call — making the manager's fast-reuse
+ * path hit and avoiding the in-process build path (capped by buildTimeout).
+ * Failures are intentionally swallowed: non-iOS sessions / no simulator
+ * must not break server startup.
+ */
+function prewarmWda(): void {
+  if (process.env.CLAUDE_MOBILE_NO_WDA_PREWARM === "1") return;
+  try {
+    // dist/index.js → ../scripts/ensure-wda.sh (repo root)
+    const script = fileURLToPath(new URL("../scripts/ensure-wda.sh", import.meta.url));
+    if (!existsSync(script)) return;
+    const child = spawn("bash", [script], {
+      detached: true,
+      stdio: "ignore",
+      env: process.env,
+    });
+    child.on("error", () => {});
+    child.unref();
+    console.error("[wda] prewarm dispatched (scripts/ensure-wda.sh)");
+  } catch {
+    // never fatal
+  }
+}
 
 // Dispatch function (needed by batch_commands / run_flow for recursion)
 async function handleTool(name: string, args: Record<string, unknown>, depth: number = 0): Promise<unknown> {
@@ -187,6 +217,10 @@ server.oninitialized = () => {
     registerAliasesWithDefaults(aliasesWithDefaults);
     console.error(`Registered ${Object.keys(aliasesWithDefaults).length} aliases with defaults for ${adapter.clientType}`);
   }
+
+  // Warm a persistent WDA so the first iOS ui_tree/tap reuses it instead of
+  // hitting the fragile in-process build path. Non-blocking, best-effort.
+  prewarmWda();
 };
 
 // Handle tool list request
