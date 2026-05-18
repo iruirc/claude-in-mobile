@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
-import { readFileSync } from "fs";
+import { readFileSync, existsSync } from "fs";
+import { spawn } from "child_process";
 import { fileURLToPath } from "url";
 import { dirname, join } from "path";
 
@@ -31,6 +32,33 @@ const RETRY_CONFIG: Record<string, { maxAttempts: number; delayMs: number[] }> =
   ADB_ERROR: { maxAttempts: 2, delayMs: [300, 900] },
   SYNC_BARRIER_TIMEOUT: { maxAttempts: 2, delayMs: [500, 1500] },
 };
+
+/**
+ * Best-effort, non-blocking WebDriverAgent prewarm. Spawns the idempotent
+ * scripts/ensure-wda.sh detached so a persistent WDA is serving on :8100
+ * before the first iOS ui_tree/tap call — making the manager's fast-reuse
+ * path hit and avoiding the in-process build path (capped by buildTimeout).
+ * Failures are intentionally swallowed: non-iOS sessions / no simulator
+ * must not break server startup.
+ */
+function prewarmWda(): void {
+  if (process.env.CLAUDE_MOBILE_NO_WDA_PREWARM === "1") return;
+  try {
+    // dist/index.js → ../scripts/ensure-wda.sh (repo root)
+    const script = fileURLToPath(new URL("../scripts/ensure-wda.sh", import.meta.url));
+    if (!existsSync(script)) return;
+    const child = spawn("bash", [script], {
+      detached: true,
+      stdio: "ignore",
+      env: process.env,
+    });
+    child.on("error", () => {});
+    child.unref();
+    console.error("[wda] prewarm dispatched (scripts/ensure-wda.sh)");
+  } catch {
+    // never fatal
+  }
+}
 
 async function handleTool(name: string, args: Record<string, unknown>, depth: number = 0): Promise<unknown> {
   if (depth > MAX_RECURSION_DEPTH) {
@@ -162,6 +190,10 @@ process.stdin.on("close", () => shutdown("stdin-close"));
 
 // Keep `server` referenced for debuggers / tools that introspect global state.
 void server;
+
+// Warm a persistent WDA so the first iOS ui_tree/tap reuses it instead of
+// hitting the fragile in-process build path. Non-blocking, best-effort.
+prewarmWda();
 
 start().catch((error) => {
   console.error("Fatal error:", error);
