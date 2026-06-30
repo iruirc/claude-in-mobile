@@ -38,9 +38,12 @@ export class IosClient {
       this.deviceId = booted[0].id;
     }
 
-    if (!this.wdaClient) {
-      this.wdaClient = await this.wdaManager.ensureWDAReady(this.deviceId);
-    }
+    // Revalidate on every call: a cached WDAClient may hold a session that
+    // WDA has since dropped (single-session eviction, runner recycle, idle
+    // GC). ensureWDAReady re-checks the session via GET /session/{id} and
+    // recreates it on 404, so a dead session self-heals instead of poisoning
+    // every subsequent request with "invalid session id".
+    this.wdaClient = await this.wdaManager.ensureWDAReady(this.deviceId);
     return this.wdaClient;
   }
 
