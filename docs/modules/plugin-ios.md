@@ -116,7 +116,7 @@ Optional: `recorder`, `autopilot`, `performance`, `visual`, `accessibility`.
 input(action: 'tap', x: 200, y: 400)
 
 // Find element by label and tap
-ui(action: 'find_tap', label: 'Sign In')
+ui(action: 'find_tap', description: 'Sign In')
 
 // Type text into focused field
 input(action: 'text', text: 'alice@icloud.com')
@@ -128,13 +128,13 @@ input(action: 'swipe', direction: 'up')
 app(action: 'launch', package: 'com.example.myapp')
 
 // Wait for element
-ui(action: 'wait', label: 'Home', timeout: 5000)
+ui(action: 'wait', text: 'Home', timeout: 5000)
 
 // Get accessibility tree
 ui(action: 'tree')
 
 // Check element visibility
-ui(action: 'assert_visible', label: 'Welcome Message')
+ui(action: 'assert_visible', text: 'Welcome Message')
 
 // Take screenshot
 screen(action: 'capture', preset: 'low')
@@ -154,28 +154,28 @@ system(action: 'shell', command: 'ls /tmp')
 app(action: 'launch', package: 'com.example.myapp')
 
 // 2. Wait for signup button
-ui(action: 'wait', label: 'Sign Up', timeout: 5000)
+ui(action: 'wait', text: 'Sign Up', timeout: 5000)
 
 // 3. Tap Sign Up
-ui(action: 'find_tap', label: 'Sign Up')
+ui(action: 'find_tap', description: 'Sign Up')
 
 // 4. Fill email field
-ui(action: 'find_tap', label: 'Email')
+ui(action: 'find_tap', description: 'Email')
 input(action: 'text', text: 'test@example.com')
 
 // 5. Fill password field
-ui(action: 'find_tap', label: 'Password')
+ui(action: 'find_tap', description: 'Password')
 input(action: 'text', text: 'MySecurePass123')
 
 // 6. Fill confirm password
-ui(action: 'find_tap', label: 'Confirm Password')
+ui(action: 'find_tap', description: 'Confirm Password')
 input(action: 'text', text: 'MySecurePass123')
 
 // 7. Tap Sign Up button
-ui(action: 'find_tap', label: 'Create Account')
+ui(action: 'find_tap', description: 'Create Account')
 
 // 8. Verify success page
-ui(action: 'wait', label: 'Welcome', timeout: 3000)
+ui(action: 'wait', text: 'Welcome', timeout: 3000)
 screen(action: 'capture')
 ```
 
@@ -186,8 +186,8 @@ screen(action: 'capture')
 app(action: 'launch', package: 'com.example.myapp')
 
 // 2. Navigate to screen to test
-ui(action: 'find_tap', label: 'Profile')
-ui(action: 'wait', label: 'User Info', timeout: 3000)
+ui(action: 'find_tap', description: 'Profile')
+ui(action: 'wait', text: 'User Info', timeout: 3000)
 
 // 3. Enable visual module
 device(action: 'enable_module', module: 'visual')
@@ -197,11 +197,11 @@ screen(action: 'capture', preset: 'medium')
 visual(action: 'baseline', name: 'profile-screen-v1')
 
 // 5. Make changes (tap edit, modify something, save)
-ui(action: 'find_tap', label: 'Edit')
-ui(action: 'find_tap', label: 'Name')
+ui(action: 'find_tap', description: 'Edit')
+ui(action: 'find_tap', description: 'Name')
 input(action: 'key', key: 'DELETE')  // clear field
 input(action: 'text', text: 'New Name')
-ui(action: 'find_tap', label: 'Save')
+ui(action: 'find_tap', description: 'Save')
 
 // 6. Capture new screenshot
 screen(action: 'capture', preset: 'medium')
@@ -232,8 +232,8 @@ performance(action: 'snapshot', metric: 'memory')
 → { rss: 120.5, heap: 95.2 }  // in MB
 
 // 6. Interact with app (heavy operation)
-ui(action: 'find_tap', label: 'Load Data')
-ui(action: 'wait', label: 'Complete', timeout: 10000)
+ui(action: 'find_tap', description: 'Load Data')
+ui(action: 'wait', text: 'Complete', timeout: 10000)
 
 // 7. Capture after snapshot
 performance(action: 'snapshot', metric: 'memory')
@@ -255,7 +255,7 @@ debug_break(sessionId: 'session-ios-1', method: 'handleUserTap', file: 'ViewCont
 → { id: 'bp-1', verified: true }
 
 // 3. Automate user interaction (in UI)
-ui(action: 'find_tap', label: 'Tap Me')
+ui(action: 'find_tap', description: 'Tap Me')
 
 // 4. Breakpoint hits
 debug_poll(sessionId: 'session-ios-1', cursor: 0)

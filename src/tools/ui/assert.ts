@@ -11,6 +11,7 @@ export const uiAssertVisible = defineTool({
   schema: z.object({
     text: z.string().optional().describe("Element text to check for (partial match)"),
     resourceId: z.string().optional().describe("Android: resource ID to check for"),
+    className: z.string().optional().describe("Find by class name (partial match)"),
     platform: platformEnum,
     deviceId: deviceIdField,
   }),
@@ -18,9 +19,10 @@ export const uiAssertVisible = defineTool({
     const { platform: currentPlatform } = parseCommonArgs(args as Record<string, unknown>, ctx);
     const searchText = args.text;
     const searchId = args.resourceId;
+    const searchClass = args.className;
 
-    if (!searchText && !searchId) {
-      return textResult("Provide text or resourceId to assert");
+    if (!searchText && !searchId && !searchClass) {
+      return textResult("Provide text, resourceId, or className to assert");
     }
 
     const { elements } = await getUiElements(ctx, currentPlatform);
@@ -28,12 +30,15 @@ export const uiAssertVisible = defineTool({
     const found = findElements(elements, {
       text: searchText,
       resourceId: searchId,
+      className: searchClass,
     });
 
     if (found.length > 0) {
       return textResult(`PASS: Element visible -- ${formatElement(found[0])}`);
     }
-    return errorResult(`FAIL: Element not visible (text=${searchText ?? ""}, resourceId=${searchId ?? ""})`);
+    return errorResult(
+      `FAIL: Element not visible (text=${searchText ?? ""}, resourceId=${searchId ?? ""}, className=${searchClass ?? ""})`,
+    );
   },
 });
 
@@ -43,6 +48,7 @@ export const uiAssertGone = defineTool({
   schema: z.object({
     text: z.string().optional().describe("Element text that should NOT be present"),
     resourceId: z.string().optional().describe("Android: resource ID that should NOT be present"),
+    className: z.string().optional().describe("Class name that should NOT be present (partial match)"),
     platform: platformEnum,
     deviceId: deviceIdField,
   }),
@@ -50,9 +56,10 @@ export const uiAssertGone = defineTool({
     const { platform: currentPlatform } = parseCommonArgs(args as Record<string, unknown>, ctx);
     const searchText = args.text;
     const searchId = args.resourceId;
+    const searchClass = args.className;
 
-    if (!searchText && !searchId) {
-      return textResult("Provide text or resourceId to assert absence");
+    if (!searchText && !searchId && !searchClass) {
+      return textResult("Provide text, resourceId, or className to assert absence");
     }
 
     const { elements } = await getUiElements(ctx, currentPlatform);
@@ -60,10 +67,13 @@ export const uiAssertGone = defineTool({
     const found = findElements(elements, {
       text: searchText,
       resourceId: searchId,
+      className: searchClass,
     });
 
     if (found.length === 0) {
-      return textResult(`PASS: Element not present (text=${searchText ?? ""}, resourceId=${searchId ?? ""})`);
+      return textResult(
+        `PASS: Element not present (text=${searchText ?? ""}, resourceId=${searchId ?? ""}, className=${searchClass ?? ""})`,
+      );
     }
     return errorResult(`FAIL: Element exists -- ${formatElement(found[0])}`);
   },

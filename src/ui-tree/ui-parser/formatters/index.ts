@@ -6,6 +6,7 @@ import { formatUiTree } from "./full.js";
 export { formatUiTreeSemantic } from "./semantic.js";
 export { formatUiTreeCompact } from "./compact.js";
 export { formatUiTree, formatElement, formatScreenAnalysis } from "./full.js";
+export { isSecureElement, safeLabel, REDACTED } from "./redact.js";
 
 export type Formatter = (elements: UiElement[]) => string;
 

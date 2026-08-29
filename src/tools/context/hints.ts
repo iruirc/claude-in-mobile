@@ -52,9 +52,18 @@ export function createGenerateActionHints(deviceManager: DeviceManager, options?
       }
     }
 
-    setCachedElements(currentPlatform, afterElements);
+    // Cache guard: never overwrite a previously-good cache with an empty read.
+    // A single failed/degraded WDA fetch used to write `[]` here, which poisoned
+    // `beforeElements` for every subsequent input and made hints permanently
+    // report "No UI elements detected." on iOS. The invariant is now also
+    // enforced centrally in SharedState.setCachedElements (so the
+    // getElementsForPlatform writers below are covered too); this explicit
+    // guard is kept as belt-and-suspenders and to skip the call entirely.
+    if (afterElements.length > 0) {
+      setCachedElements(currentPlatform, afterElements);
+    }
 
-    if (beforeElements.length === 0 && afterElements.length === 0) {
+    if (afterElements.length === 0) {
       return "\n--- Hints ---\nNo UI elements detected.";
     }
 

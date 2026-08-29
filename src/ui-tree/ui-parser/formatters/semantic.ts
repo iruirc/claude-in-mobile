@@ -1,4 +1,5 @@
 import type { UiElement } from "../types.js";
+import { safeLabel } from "./redact.js";
 
 /** Semantic UI tree format — grouped by role, minimal tokens (~3x reduction vs default) */
 export function formatUiTreeSemantic(elements: UiElement[]): string {
@@ -9,7 +10,7 @@ export function formatUiTreeSemantic(elements: UiElement[]): string {
 
   for (const el of elements) {
     if (el.width <= 0 || el.height <= 0) continue;
-    const label = el.text || el.contentDesc || "";
+    const label = safeLabel(el, el.text || el.contentDesc || "");
     const isInput = el.className.includes("EditText") || el.className.includes("TextField") || el.className.includes("TextInput");
     const isNav = (el.contentDesc || "").toLowerCase().match(/back|navigate|menu|overflow|drawer/);
 

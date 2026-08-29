@@ -1,5 +1,6 @@
 import type { ScreenAnalysis, UiElement } from "../types.js";
 import { formatUiTreeCompact } from "./compact.js";
+import { isSecureElement, REDACTED } from "./redact.js";
 
 /**
  * Format element for display
@@ -16,7 +17,10 @@ export function formatElement(el: UiElement): string {
     parts.push(`id="${shortId}"`);
   }
 
-  if (el.text) {
+  if (isSecureElement(el)) {
+    // Never leak the contents of a password / secure text field.
+    parts.push(`text="${REDACTED}"`);
+  } else if (el.text) {
     parts.push(`text="${el.text.slice(0, 50)}${el.text.length > 50 ? "..." : ""}"`);
   }
 

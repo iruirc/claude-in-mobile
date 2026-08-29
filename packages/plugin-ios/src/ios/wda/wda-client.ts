@@ -5,6 +5,7 @@ import {
   UITreeNode,
   LocatorStrategy,
   TouchAction,
+  unwrapWdaValue,
 } from "./wda-types.js";
 
 export class WDAClient {
@@ -77,7 +78,10 @@ export class WDAClient {
       "GET",
       `/session/${this.sessionId}/wda/accessibleSource`
     );
-    return response.value || response;
+    // Trust boundary: a degraded session returns 200 with {value:null}. Reject
+    // it here instead of casting the envelope to a tree (which yields an empty
+    // parse and poisons downstream caches). See WdaTreeError.
+    return unwrapWdaValue<UITreeNode>(response, "accessibleSource");
   }
 
   async findElement(
@@ -97,7 +101,7 @@ export class WDAClient {
       }
     );
 
-    return response.value || response;
+    return unwrapWdaValue<WDAElement>(response, "findElement");
   }
 
   async findElements(
@@ -117,7 +121,10 @@ export class WDAClient {
       }
     );
 
-    return response.value || response || [];
+    // A genuine "no matches" answer is `{value: []}` (a non-null object) and
+    // passes validation as an empty array. Only a degraded `{value:null}`
+    // envelope throws WdaTreeError — never silently returns the envelope.
+    return unwrapWdaValue<WDAElement[]>(response, "findElements");
   }
 
   async clickElement(elementId: string): Promise<void> {
@@ -213,7 +220,10 @@ export class WDAClient {
       "GET",
       `/session/${this.sessionId}/window/size`
     );
-    return response.value || response;
+    return unwrapWdaValue<{ width: number; height: number }>(
+      response,
+      "window/size"
+    );
   }
 
   async swipe(
@@ -256,7 +266,7 @@ export class WDAClient {
       `/session/${this.sessionId}/element/${elementId}/rect`
     );
 
-    return response.value || response;
+    return unwrapWdaValue<WDARect>(response, "element/rect");
   }
 
   async getElementText(elementId: string): Promise<string> {

@@ -1,4 +1,5 @@
 import type { UiElement } from "../types.js";
+import { safeLabel } from "./redact.js";
 
 /**
  * Compact format: only interactive elements, short one-line format.
@@ -39,7 +40,7 @@ export function formatUiTreeCompact(elements: UiElement[], maxElements: number):
       lines.push(`${groupCount}x ${shortClass}`);
       i += groupCount;
     } else {
-      const label = el.text || el.contentDesc || "";
+      const label = safeLabel(el, el.text || el.contentDesc || "");
       const labelPart = label ? ` "${label.slice(0, 40)}${label.length > 40 ? "…" : ""}"` : "";
       lines.push(`[${el.index}] ${shortClass}${labelPart} (${el.centerX},${el.centerY})`);
       i++;

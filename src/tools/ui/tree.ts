@@ -1,18 +1,79 @@
 import { defineTool, z } from "../define-tool.js";
 import { platformEnum, deviceIdField } from "../common-schema.js";
-import { parseUiHierarchy, formatUiTree, formatUiTreeSemantic } from "../../ui-tree/ui-parser.js";
+import {
+  parseUiHierarchy,
+  formatUiTree,
+  formatUiTreeSemantic,
+  type UiElement,
+} from "../../ui-tree/ui-parser.js";
 import { parseCommonArgs } from "../../utils/parse-common-args.js";
 import { textResult } from "../../utils/tool-result.js";
 import { TRUNCATION } from "../../constants/truncation.js";
+import type { ToolContext } from "../context.js";
+
+/** Formatting/caching options shared by every platform that yields UiElement[]. */
+interface TreeFormatOptions {
+  showAll: boolean;
+  compact: boolean;
+  semantic: boolean;
+  fresh: boolean;
+}
+
+/**
+ * Single formatting + dedup-cache path shared by ALL element-based platforms
+ * (Android, iOS, …). Keeping this in one place is the whole point of the fix:
+ * previously iOS early-returned a bespoke tree dump and silently ignored
+ * `compact` / `format:semantic` / `showAll` / `fresh`, and never enforced the
+ * element limit. Routing every platform through here guarantees identical
+ * behaviour for the four flags.
+ */
+function formatAndCacheTree(
+  ctx: ToolContext,
+  platform: string,
+  elements: UiElement[],
+  opts: TreeFormatOptions,
+): string {
+  ctx.setCachedElements(platform, elements);
+
+  if (opts.semantic) {
+    // Semantic output is intentionally not dedup-cached (it is already the
+    // cheapest format and callers ask for it to force a fresh read).
+    return formatUiTreeSemantic(elements);
+  }
+
+  const tree = formatUiTree(elements, { showAll: opts.showAll, compact: opts.compact });
+
+  const cacheKey = `${platform}:${opts.showAll}:${opts.compact}`;
+  const cached = opts.fresh ? undefined : ctx.lastUiTreeMap.get(cacheKey);
+  const now = Date.now();
+  if (cached && cached.text === tree && now - cached.timestamp < 2000) {
+    const ago = now - cached.timestamp;
+    return `UI unchanged (cached ${ago}ms ago). ${elements.length} elements.`;
+  }
+  ctx.lastUiTreeMap.set(cacheKey, { text: tree, timestamp: now });
+  return tree;
+}
 
 export const uiTree = defineTool({
   name: "ui_tree",
   description: "Get UI hierarchy (accessibility tree). Shows elements, text, IDs, coordinates.",
   schema: z.object({
-    showAll: z.boolean().default(false).describe("Show all elements including non-interactive ones"),
-    compact: z.boolean().optional().describe("Interactive elements only — shortest format."),
-    format: z.string().optional().describe("'semantic' for role-grouped output (~3x token reduction)."),
-    fresh: z.boolean().optional().describe("Bypass the 2-second dedup cache."),
+    showAll: z
+      .boolean()
+      .default(false)
+      .describe("Show all elements including non-interactive ones. Applies to android + ios."),
+    compact: z
+      .boolean()
+      .optional()
+      .describe("Interactive elements only — shortest format. Applies to android + ios."),
+    format: z
+      .string()
+      .optional()
+      .describe("'semantic' for role-grouped output (~3x token reduction). Applies to android + ios."),
+    fresh: z
+      .boolean()
+      .optional()
+      .describe("Bypass the 2-second dedup cache. Applies to android + ios."),
     platform: platformEnum,
     deviceId: deviceIdField,
   }),
@@ -20,12 +81,22 @@ export const uiTree = defineTool({
     const { deviceId, platform: currentPlatform } = parseCommonArgs(args as Record<string, unknown>, ctx);
     const platform = args.platform;
 
+    const opts: TreeFormatOptions = {
+      showAll: args.showAll,
+      compact: args.compact ?? false,
+      semantic: args.format === "semantic",
+      fresh: args.fresh ?? false,
+    };
+
     if (currentPlatform === "ios") {
       try {
         const json = await ctx.deviceManager.getUiHierarchy("ios", deviceId);
         const tree = JSON.parse(json);
-        const formatted = ctx.formatIOSUITree(tree);
-        return textResult(formatted);
+        // iOS already exposes UiElement[] via iosTreeToUiElements (same
+        // representation Android uses), so it can share the exact formatting
+        // + caching path instead of its own bespoke dump.
+        const elements = ctx.iosTreeToUiElements(tree);
+        return textResult(formatAndCacheTree(ctx, "ios", elements, opts));
       } catch (error: unknown) {
         const msg = error instanceof Error ? error.message : String(error);
         return textResult(
@@ -44,25 +115,6 @@ export const uiTree = defineTool({
     }
 
     const parsedElements = parseUiHierarchy(xml);
-    ctx.setCachedElements("android", parsedElements);
-    if (args.format === "semantic") {
-      return textResult(formatUiTreeSemantic(parsedElements));
-    }
-
-    const showAll = args.showAll;
-    const compact = args.compact ?? false;
-    const tree = formatUiTree(parsedElements, { showAll, compact });
-
-    const fresh = args.fresh ?? false;
-    const cacheKey = `android:${showAll}:${compact}`;
-    const cached = fresh ? undefined : ctx.lastUiTreeMap.get(cacheKey);
-    const now = Date.now();
-    if (cached && cached.text === tree && (now - cached.timestamp) < 2000) {
-      const ago = now - cached.timestamp;
-      return textResult(`UI unchanged (cached ${ago}ms ago). ${parsedElements.length} elements.`);
-    }
-    ctx.lastUiTreeMap.set(cacheKey, { text: tree, timestamp: now });
-
-    return textResult(tree);
+    return textResult(formatAndCacheTree(ctx, "android", parsedElements, opts));
   },
 });

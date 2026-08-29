@@ -1,5 +1,6 @@
 import type { UiDiffResult, UiElement } from "./types.js";
 import { getShortId } from "./types.js";
+import { safeLabel } from "./formatters/redact.js";
 
 // ──────────────────────────────────────────────
 // Action Result Hints — UI Element Diffing
@@ -25,9 +26,13 @@ export function diffUiElements(before: UiElement[], after: UiElement[]): UiDiffR
   const changedCount = appearedElements.length + disappearedElements.length;
   const screenChanged = totalUnique > 0 && (changedCount / totalUnique) > 0.6;
 
-  // Format descriptions (limit to 5 each)
+  // Format descriptions (limit to 5 each).
+  // safeLabel redacts secure-field values: WDA puts the typed password in
+  // `el.text` for XCUIElementTypeSecureTextField, and this description is
+  // printed verbatim in the "New:"/"Gone:" hint lines.
   const describeEl = (el: UiElement): string => {
-    const label = el.text || el.contentDesc || getShortId(el.resourceId) || "";
+    const rawLabel = el.text || el.contentDesc || getShortId(el.resourceId) || "";
+    const label = safeLabel(el, rawLabel);
     const shortClass = el.className.split(".").pop() ?? el.className;
     if (label) {
       return el.clickable ? `"${label}" ${shortClass.toLowerCase()}` : `"${label}"`;
@@ -56,7 +61,9 @@ export function suggestNextActions(elements: UiElement[]): string[] {
                    el.className.includes("TextInput"))
   );
   if (focusedInput) {
-    const name = focusedInput.contentDesc || focusedInput.text || getShortId(focusedInput.resourceId) || "field";
+    const rawName = focusedInput.contentDesc || focusedInput.text || getShortId(focusedInput.resourceId) || "field";
+    // A focused SecureTextField carries the typed password in `text` — redact.
+    const name = safeLabel(focusedInput, rawName);
     suggestions.push(`input_text into ${name}`);
   }
 
@@ -67,7 +74,7 @@ export function suggestNextActions(elements: UiElement[]): string[] {
      el.contentDesc.match(/^(OK|Cancel|Yes|No|Confirm|Dismiss|Close|Accept|Deny|Allow)$/i))
   );
   if (dialogButtons.length > 0) {
-    const labels = dialogButtons.map(b => b.text || b.contentDesc).join(" or ");
+    const labels = dialogButtons.map(b => safeLabel(b, b.text || b.contentDesc)).join(" or ");
     suggestions.push(`tap ${labels}`);
   }
 
@@ -77,7 +84,7 @@ export function suggestNextActions(elements: UiElement[]): string[] {
   );
   if (clickableElements.length > 0 && suggestions.length < 3) {
     const labels = clickableElements.slice(0, 3).map(el =>
-      `"${el.text || el.contentDesc}"`
+      `"${safeLabel(el, el.text || el.contentDesc)}"`
     ).join(", ");
     suggestions.push(`tap ${labels}`);
   }
