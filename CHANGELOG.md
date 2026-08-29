@@ -7,10 +7,45 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [4.1.0] — 2026-08-29
+
 ### Added
-- Grok Build plugin: native `.grok-plugin` marketplace and plugin manifests, bundled
-  MCP server `mobile` (`npx -y mcp-devices`), `mcp-devices setup grok` / `--global`,
-  and `--init grok` config snippet.
+- **Grok Build plugin support (#61).** Native `.grok-plugin` marketplace and
+  plugin manifest, a bundled MCP server `mobile` (`npx -y mcp-devices`),
+  `mcp-devices setup grok` / `--global`, and an `--init grok` config snippet:
+  `grok plugin marketplace add AlexGladkov/claude-in-mobile` then
+  `grok plugin install mcp-devices --trust`.
+
+### Fixed
+- **#60 — iOS `ui` tool: three defects fixed at their shared roots.**
+  (1) `ui(action:'tree')` ignored `compact` / `format:'semantic'` / `showAll` /
+  `fresh` on iOS: the iOS branch early-returned a bespoke formatter, bypassing the
+  shared format/cache layer. It now converts the WDA tree and routes through the
+  same path as Android; SecureTextField values render as `[REDACTED]` (also
+  closing a pre-existing Android leak). (2) input-action hints were always empty:
+  `wda-client` unwrapped WDA replies with a falsy `value || response`, returning
+  the envelope on `value:null` instead of throwing, and the hint cache was
+  poisoned with `[]`. The trust boundary is validated now and the cache never
+  overwrites a non-empty snapshot with an empty one. (3) `ui` docs/examples used
+  parameters the tools silently stripped (`label` on `find_tap` / `assert_visible`
+  / `wait`); the meta schema is honest now and `plugin-ios.md` uses the correct
+  params (`description` / `text`).
+- **#59 — `screen(action:'capture', preset:…)` ignored the preset on every
+  platform.** The Zod schema (`.default(540/960/55)`) and the meta facade
+  (`default:` hints) filled `maxWidth` / `maxHeight` / `quality` before the
+  handler, so `args.x ?? preset?.x` never fired and every preset returned the
+  medium frame. This is #56 (3.15.1) re-introduced by the 3.x→4.0 merge, which
+  dropped the fix and its regression test. Restored `.optional()` + an explicit
+  medium fallback and re-added the `low < medium < high` guard at the facade level.
+
+### Changed
+- The Claude Code plugin manifest (`cli/plugin/.claude-plugin/plugin.json`) does
+  **not** auto-register the `mobile` MCP server — that stays opt-in via
+  `claude mcp add` to avoid double-registration for existing users. Grok gets
+  zero-config MCP via its own `.grok-plugin` manifest.
+- `verify-plugin-versions` now asserts it checked exactly 13 version fields, so
+  adding a manifest without extending the loop fails CI instead of silently
+  passing on a stale subset (the 4.0.1 class).
 
 ## [4.0.2] — 2026-08-19
 

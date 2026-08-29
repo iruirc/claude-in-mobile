@@ -1,13 +1,19 @@
 {
   "name": "mcp-devices",
-  "version": "4.0.2",
+  "version": "4.1.0",
   "description": "Mobile device automation CLI for Android, iOS, Aurora OS, and Desktop platforms",
   "author": {
     "name": "defendend",
     "url": "https://github.com/defendend"
   },
   "homepage": "https://github.com/AlexGladkov/claude-in-mobile",
-  "keywords": ["mobile", "android", "ios", "mcp", "grok"],
+  "keywords": [
+    "mobile",
+    "android",
+    "ios",
+    "mcp",
+    "grok"
+  ],
   "skills": [
     "./skills/mcp-devices"
   ]
