@@ -16,6 +16,22 @@ import { parseUiHierarchy, UiElement } from "../ui-tree/ui-parser.js";
 
 const STABLE_THRESHOLD_PERCENT = 2;
 
+/**
+ * Quality presets shared by the capture handler and the JSON-schema facade.
+ * `medium` doubles as the default fallback applied LAST in the handler once
+ * the params are optional (no zod default) — see #56.
+ */
+export const SCREEN_PRESETS = {
+  low: { maxWidth: 270, maxHeight: 480, quality: 40 },
+  medium: { maxWidth: 540, maxHeight: 960, quality: 55 },
+  high: { maxWidth: 810, maxHeight: 1440, quality: 70 },
+} as const;
+
+/** Hard bounds advertised in the param descriptions — clamp to prevent DoS. */
+const DIMENSION_MAX = 2000;
+const QUALITY_MIN = 1;
+const QUALITY_MAX = 100;
+
 async function waitForStableScreenshot(getBuffer: () => Promise<Buffer>): Promise<Buffer> {
   let prev = await getBuffer();
   for (let i = 0; i < SCREEN.STABLE_MAX_RETRIES; i++) {
@@ -40,23 +56,35 @@ export const screenshotTools: ToolDefinition[] = [
         .boolean()
         .default(true)
         .describe("Compress image (default: true). Set false for original quality."),
+      // Optional (NOT .default) so an unset value stays undefined and lets
+      // `preset` win; the medium default is applied last in the handler.
+      // A zod .default() here made these args never-undefined, so the
+      // `args.X ?? preset` resolution always took the default and the preset
+      // was silently ignored (#56). .min/.max clamp advertised bounds so an
+      // out-of-range value cannot drive an unbounded sharp.resize (DoS).
       maxWidth: z
         .number()
-        .default(540)
+        .min(1)
+        .max(DIMENSION_MAX)
+        .optional()
         .describe(
-          "Max width in pixels (default: 540). Lower values reduce token cost. Max 2000 for API.",
+          "Max width in pixels (overrides preset; default via preset or 540). Lower values reduce token cost. Max 2000 for API.",
         ),
       maxHeight: z
         .number()
-        .default(960)
+        .min(1)
+        .max(DIMENSION_MAX)
+        .optional()
         .describe(
-          "Max height in pixels (default: 960). Lower values reduce token cost. Max 2000 for API.",
+          "Max height in pixels (overrides preset; default via preset or 960). Lower values reduce token cost. Max 2000 for API.",
         ),
       quality: z
         .number()
-        .default(55)
+        .min(QUALITY_MIN)
+        .max(QUALITY_MAX)
+        .optional()
         .describe(
-          "JPEG quality 1-100 (default: 55). Lower = smaller size, faster processing.",
+          "JPEG quality 1-100 (overrides preset; default via preset or 55). Lower = smaller size, faster processing.",
         ),
       monitorIndex: z
         .number()
@@ -93,20 +121,18 @@ export const screenshotTools: ToolDefinition[] = [
       const stableMode = args.waitForStable === true;
       const diffThreshold = args.diffThreshold;
 
-      // Resolve preset to concrete values (explicit params override preset)
-      const presetValues: Record<
-        string,
-        { maxWidth: number; maxHeight: number; quality: number }
-      > = {
-        low: { maxWidth: 270, maxHeight: 480, quality: 40 },
-        medium: { maxWidth: 540, maxHeight: 960, quality: 55 },
-        high: { maxWidth: 810, maxHeight: 1440, quality: 70 },
-      };
-      const preset = args.preset ? presetValues[args.preset] : undefined;
+      // Precedence: explicit param → preset → medium default. Because the
+      // params are now optional (no zod default), an unset value is undefined
+      // and preset actually takes effect. The medium default is applied LAST
+      // here (not as a zod default) so a no-preset + no-explicit call still
+      // gets concrete dimensions instead of undefined (#56).
+      const preset = args.preset
+        ? SCREEN_PRESETS[args.preset as keyof typeof SCREEN_PRESETS]
+        : undefined;
       const compressOptions = {
-        maxWidth: args.maxWidth ?? preset?.maxWidth,
-        maxHeight: args.maxHeight ?? preset?.maxHeight,
-        quality: args.quality ?? preset?.quality,
+        maxWidth: args.maxWidth ?? preset?.maxWidth ?? SCREEN_PRESETS.medium.maxWidth,
+        maxHeight: args.maxHeight ?? preset?.maxHeight ?? SCREEN_PRESETS.medium.maxHeight,
+        quality: args.quality ?? preset?.quality ?? SCREEN_PRESETS.medium.quality,
         monitorIndex: args.monitorIndex,
         turbo: ctx.turboDefault,
       };
@@ -194,19 +220,25 @@ export const screenshotTools: ToolDefinition[] = [
       platform: platformEnum,
       maxWidth: z
         .number()
-        .default(540)
+        .min(1)
+        .max(DIMENSION_MAX)
+        .default(SCREEN_PRESETS.medium.maxWidth)
         .describe(
           "Max width in pixels (default: 540). Lower values reduce token cost. Max 2000 for API.",
         ),
       maxHeight: z
         .number()
-        .default(960)
+        .min(1)
+        .max(DIMENSION_MAX)
+        .default(SCREEN_PRESETS.medium.maxHeight)
         .describe(
           "Max height in pixels (default: 960). Lower values reduce token cost. Max 2000 for API.",
         ),
       quality: z
         .number()
-        .default(55)
+        .min(QUALITY_MIN)
+        .max(QUALITY_MAX)
+        .default(SCREEN_PRESETS.medium.quality)
         .describe(
           "JPEG quality 1-100 (default: 55). Lower = smaller size, faster processing.",
         ),
