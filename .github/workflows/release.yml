@@ -97,6 +97,13 @@ jobs:
         run: |
           TAG="${{ steps.version.outputs.version }}"
           FAIL=0
+          COUNT=0
+          # Guard against silently checking fewer fields than the release
+          # profile promises (Stage 2 = 13). This is the 4.0.1 class: a new
+          # manifest is added but the verify loop is not extended, CI stays
+          # green on a stale subset, and channels desync. If you add or remove
+          # a version field below, update EXPECTED to match.
+          EXPECTED=13
 
           PKG=$(jq -r '.version' package.json)
           MARKET=$(jq -r '.plugins[0].version' .claude-plugin/marketplace.json)
@@ -115,6 +122,7 @@ jobs:
 
           for KIND in PKG CARGO MARKET GROK_MARKET PLUGIN GROK_PLUGIN; do
             VAL=$(eval echo \$$KIND)
+            COUNT=$((COUNT + 1))
             if [ "$VAL" != "$TAG" ]; then
               echo "::error::$KIND version ($VAL) does not match tag ($TAG)"
               FAIL=1
@@ -125,6 +133,7 @@ jobs:
           # (plugin-api is deliberately excluded — independently versioned).
           for p in plugin-android plugin-ios plugin-web plugin-desktop plugin-aurora plugin-debug plugin-all; do
             PV=$(jq -r '.version' "packages/$p/package.json")
+            COUNT=$((COUNT + 1))
             echo "packages/$p:                           $PV"
             if [ "$PV" != "$TAG" ]; then
               echo "::error::@mcp-devices/$p version ($PV) does not match tag ($TAG)"
@@ -132,11 +141,16 @@ jobs:
             fi
           done
 
+          if [ "$COUNT" -ne "$EXPECTED" ]; then
+            echo "::error::Checked $COUNT version fields but expected $EXPECTED. A manifest was added or removed without updating this job (4.0.1 class). Update the verify loops and EXPECTED together."
+            FAIL=1
+          fi
+
           if [ "$FAIL" -ne 0 ]; then
             echo "::error::Version drift detected. All version fields must equal the tag."
             exit 1
           fi
-          echo "All versions match tag $TAG"
+          echo "All $COUNT versions match tag $TAG"
 
   release:
     needs: [build, setup]

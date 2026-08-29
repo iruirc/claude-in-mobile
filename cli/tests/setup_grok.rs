@@ -88,9 +88,36 @@ fn assert_plugin_tree(root: &Path) {
             "mobile": { "command": "npx", "args": ["-y", "mcp-devices"] }
         })
     );
+
+    // The Grok manifest wires MCP servers (`grok setup` auto-trusts them);
+    // the Claude manifest deliberately does NOT declare mcpServers anymore.
+    // Compare as JSON values for robustness against formatting drift.
+    let grok: serde_json::Value =
+        serde_json::from_str(&fs::read_to_string(root.join(".grok-plugin/plugin.json")).unwrap())
+            .unwrap();
+    assert_eq!(grok["name"], "mcp-devices", "grok manifest name");
     assert_eq!(
-        fs::read_to_string(root.join(".grok-plugin/plugin.json")).unwrap(),
-        fs::read_to_string(root.join(".claude-plugin/plugin.json")).unwrap()
+        grok["skills"],
+        serde_json::json!(["./skills/mcp-devices"]),
+        "grok manifest skills"
+    );
+    assert_eq!(
+        grok["mcpServers"], "./.mcp.json",
+        "grok manifest must wire mcpServers"
+    );
+
+    let claude: serde_json::Value =
+        serde_json::from_str(&fs::read_to_string(root.join(".claude-plugin/plugin.json")).unwrap())
+            .unwrap();
+    assert_eq!(claude["name"], "mcp-devices", "claude manifest name");
+    assert_eq!(
+        claude["skills"],
+        serde_json::json!(["./skills/mcp-devices"]),
+        "claude manifest skills"
+    );
+    assert!(
+        claude.get("mcpServers").is_none(),
+        "claude manifest must NOT declare mcpServers"
     );
 }
 
@@ -134,6 +161,20 @@ fn global_install_uses_home() {
     let plugin = iso.global_plugin();
     assert!(stdout.contains(plugin.to_string_lossy().as_ref()));
     assert!(stdout.contains("global"));
+    // Global scope prompts a restart, same as local.
+    assert!(stdout.contains("Restart Grok"), "stdout: {stdout}");
+    // The `--trust` install step is local-only: global plugins land in Grok's
+    // auto-trusted area, so the local trust command must NOT be shown here.
+    assert!(
+        !stdout.contains("grok plugin install"),
+        "global output must not show the local trust command; stdout: {stdout}"
+    );
+    // Global scope warns that the plugin is auto-trusted and will run the MCP
+    // server on restart (parity with the explicit local trust step).
+    assert!(
+        stdout.contains("auto-trusted") && stdout.contains("npx -y mcp-devices"),
+        "global output must warn about auto-trust; stdout: {stdout}"
+    );
 
     assert_plugin_tree(&plugin);
     assert_not_exists(&iso.local_plugin());
@@ -168,6 +209,42 @@ fn force_replaces_existing_files() {
     let restored = fs::read_to_string(&skill).unwrap();
     assert_ne!(restored, "stale skill content\n");
     assert!(restored.contains("mcp-devices"));
+
+    // --force must fully restore the plugin tree, not just the tampered file.
+    assert_plugin_tree(&iso.local_plugin());
+}
+
+#[test]
+fn idempotent_reinstall_same_content() {
+    let iso = Isolated::new();
+    assert_success(&iso.run(&["setup", "grok"]));
+
+    let plugin = iso.local_plugin();
+    // Snapshot every installed file's content.
+    let before: Vec<(PathBuf, String)> = PLUGIN_FILES
+        .iter()
+        .map(|rel| {
+            let path = plugin.join(rel);
+            let content = fs::read_to_string(&path)
+                .unwrap_or_else(|e| panic!("read {}: {e}", path.display()));
+            (path, content)
+        })
+        .collect();
+
+    // Re-running with no changes and without --force must succeed: every file
+    // already matches the embedded template, so write_file_if_needed is a no-op.
+    let output = iso.run(&["setup", "grok"]);
+    assert_success(&output);
+
+    for (path, content) in &before {
+        assert_eq!(
+            &fs::read_to_string(path).unwrap(),
+            content,
+            "content changed on idempotent reinstall: {}",
+            path.display()
+        );
+    }
+    assert_plugin_tree(&plugin);
 }
 
 #[test]

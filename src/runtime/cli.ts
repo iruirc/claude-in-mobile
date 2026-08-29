@@ -17,7 +17,7 @@ export function runCliIfRequested(argv: readonly string[], version: string): boo
     console.log(`mcp-devices ${version}
 
 MCP server for mobile, desktop and browser automation. Designed to run as a
-stdio child of an MCP-capable client (Claude Code, Cursor, opencode, Grok, …) — it
+stdio child of an MCP-capable client (${INIT_CLIENTS.join(", ")}, …) — it
 speaks JSON-RPC on stdin/stdout and is not intended for direct interactive
 use.
 

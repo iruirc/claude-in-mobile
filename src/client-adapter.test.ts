@@ -36,6 +36,18 @@ describe("detectClient", () => {
     expect(adapter.clientType).toBe("grok");
   });
 
+  it("matches the first CLIENT_MATCHERS entry when a name contains several markers", () => {
+    // CLIENT_MATCHERS is order-sensitive and uses .find() (first match wins).
+    // Real order in client-adapter.ts: claude → opencode → cursor → grok.
+    // So a name carrying both "claude" and "grok" resolves to claude-code,
+    // because the claude matcher comes first. This test pins that precedence;
+    // the matchers are substring regexes (/grok/i etc.), so overlapping names
+    // are decided purely by matcher order, not specificity — documented here so
+    // a future reorder of CLIENT_MATCHERS surfaces as a failing test.
+    const adapter = detectClient({ name: "claude-grok", version: "1.0.0" });
+    expect(adapter.clientType).toBe("claude-code");
+  });
+
   it("should return unknown for unrecognized clients", () => {
     const adapter = detectClient({ name: "some-new-client", version: "1.0.0" });
     expect(adapter.clientType).toBe("unknown");

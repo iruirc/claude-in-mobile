@@ -235,8 +235,10 @@ fn grok_next_steps(scope: InstallScope) -> &'static str {
         InstallScope::Local => {
             "Restart Grok, then trust and enable the plugin:\n  grok plugin install ./.grok/plugins/mcp-devices --trust\n  grok plugin enable mcp-devices"
         }
+        // Global plugins land in Grok's auto-trusted area: on restart Grok will
+        // launch the bundled MCP server without a separate `--trust` step.
         InstallScope::Global => {
-            "Restart Grok. If mcp-devices does not appear, run: grok plugin enable mcp-devices"
+            "Heads up: this installs into Grok's auto-trusted area, so on restart Grok will automatically run the MCP server (npx -y mcp-devices).\nRestart Grok. If mcp-devices does not appear, run: grok plugin enable mcp-devices"
         }
     }
 }

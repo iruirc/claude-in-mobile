@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it } from "vitest";
 
 const ROOT = new URL("../", import.meta.url).pathname;
 
@@ -43,13 +43,54 @@ describe("plugin manifests version lock", () => {
     expect(grokMarketPlugins[0].source).toBe("./cli/plugin");
   });
 
-  it("declares mcpServers as ./.mcp.json on both plugin.json files", () => {
-    expect(claudePlugin.mcpServers).toBe("./.mcp.json");
+  it("declares mcpServers as ./.mcp.json on the Grok plugin.json only", () => {
+    // grok-only by design (see "Claude vs Grok plugin.json" below): the Claude
+    // manifest intentionally omits mcpServers so it does not auto-register an
+    // MCP server for existing Claude Code users.
     expect(grokPlugin.mcpServers).toBe("./.mcp.json");
+    expect(claudePlugin.mcpServers).toBeUndefined();
   });
 
-  it("keeps Claude and Grok plugin.json lockstep", () => {
-    expect(grokPlugin).toEqual(claudePlugin);
+  describe("Claude vs Grok plugin.json", () => {
+    // The two manifests are intentionally NOT byte-identical: `mcpServers` is
+    // grok-only by design. We deliberately dropped `mcpServers` from the Claude
+    // manifest so that installing the plugin does not auto-register an MCP
+    // server for existing Claude Code users (they opt in themselves), while the
+    // Grok manifest keeps it to wire up the mobile server out of the box.
+    // Comparing the whole objects with toEqual would be brittle — any future
+    // grok-only field would become a false CI blocker — so instead we assert
+    // the shared fields match and pin the allowed divergence explicitly.
+    let claude: Record<string, unknown>;
+    let grok: Record<string, unknown>;
+
+    beforeAll(() => {
+      claude = readJson("cli/plugin/.claude-plugin/plugin.json");
+      grok = readJson("cli/plugin/.grok-plugin/plugin.json");
+    });
+
+    it("keeps the shared fields identical", () => {
+      const SHARED_FIELDS = [
+        "name",
+        "version",
+        "description",
+        "author",
+        "homepage",
+        "keywords",
+        "skills",
+      ] as const;
+      for (const field of SHARED_FIELDS) {
+        expect(grok[field], `field '${field}' must match across manifests`).toEqual(
+          claude[field],
+        );
+      }
+    });
+
+    it("keeps mcpServers as a grok-only divergence", () => {
+      // Grok registers the MCP server out of the box…
+      expect(grok.mcpServers).toBe("./.mcp.json");
+      // …while Claude intentionally omits the key entirely (opt-in for existing users).
+      expect(claude.mcpServers).toBeUndefined();
+    });
   });
 
   it("spawns MCP via npx -y mcp-devices", () => {
