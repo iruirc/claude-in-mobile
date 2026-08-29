@@ -4,25 +4,35 @@
 //! exposes it to the TS MCP server is wired in Phase 9 (REPL TS plugin).
 
 use std::collections::HashMap;
+use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
+use std::time::UNIX_EPOCH;
 
 use anyhow::{anyhow, bail, Result};
+use serde::Serialize;
 
 use super::expect::{ExpectOutcome, ExpectRules};
 use super::prompt_profiles::{compile, pick_profile};
-use super::session::{PtySession, SessionState, SessionStatus, SpawnOptions};
+use super::session::{FilmstripFrame, PtySession, SessionState, SessionStatus, SpawnOptions};
+use super::session::FILMSTRIP_CAP;
+
+// ---------------------------------------------------------------------------
+// Internal handle
+// ---------------------------------------------------------------------------
 
 /// One live session. `session` is the exclusive lock for mutating ops
-/// (send/key/expect/kill); `state` is a shared clone of the session's read
-/// state so `list`/`snapshot` can report status/screen WITHOUT blocking on a
-/// concurrent long-running `expect` that holds `session`.
+/// (send/key/expect/kill/resize); `state` is a shared clone of the session's
+/// read state so `list`/`snapshot` can report status/screen WITHOUT blocking
+/// on a concurrent long-running `expect` that holds `session`.
 struct SessionHandle {
     cmd: String,
-    cols: u16,
-    rows: u16,
     state: Arc<Mutex<SessionState>>,
     session: Mutex<PtySession>,
 }
+
+// ---------------------------------------------------------------------------
+// Public request types
+// ---------------------------------------------------------------------------
 
 pub struct Supervisor {
     sessions: Mutex<HashMap<String, Arc<SessionHandle>>>,
@@ -37,10 +47,105 @@ pub struct SpawnRequest {
     pub cols: u16,
     pub rows: u16,
     pub prompt_regex: Option<String>,
-    /// Run `cmd` via `/bin/sh -c` instead of direct argv exec. See
-    /// [`SpawnOptions::shell`].
+    /// Run `cmd` via `/bin/sh -c` instead of direct argv exec.
     pub shell: bool,
+    /// When `Some`, enable asciicast v2 recording to this path.
+    pub cast_path: Option<PathBuf>,
 }
+
+// ---------------------------------------------------------------------------
+// Wire types
+// ---------------------------------------------------------------------------
+
+/// SYNC-ANCHOR: Rust FilmstripFrameDto ↔ TS types.ts FilmstripFrame
+/// Fields MUST be named 'ts' (millis, u64) and 'grid' (NOT 'screen', NOT 'capturedAt').
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FilmstripFrameDto {
+    /// Unix epoch milliseconds.
+    pub ts: u64,
+    pub grid: String,
+}
+
+impl From<&FilmstripFrame> for FilmstripFrameDto {
+    fn from(f: &FilmstripFrame) -> Self {
+        let ts = f
+            .captured_at
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis() as u64;
+        Self {
+            ts,
+            grid: f.grid.clone(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SessionInfo {
+    pub id: String,
+    pub cmd: String,
+    pub status: SessionStatus,
+    pub exit_code: Option<i32>,
+}
+
+/// SYNC-ANCHOR: matches SessionSnapshot in src/plugins/repl/types.ts.
+/// New optional fields use `skip_serializing_if` so old clients never see them.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SessionSnapshot {
+    pub id: String,
+    pub status: SessionStatus,
+    /// vt100-rendered grid. Empty string when mode='raw' (for backward-compat
+    /// of TS types — field must exist even if empty).
+    pub screen: String,
+    pub exit_code: Option<i32>,
+    pub cols: u16,
+    pub rows: u16,
+    /// Present only when mode='raw' or mode='both'.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub raw: Option<String>,
+    /// Present only when history is truthy.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub frames: Option<Vec<FilmstripFrameDto>>,
+}
+
+/// Result of a spawn call.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SpawnResult {
+    pub id: String,
+    /// Absolute path to the `.cast` file when recording was requested.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cast_file: Option<String>,
+}
+
+// ---------------------------------------------------------------------------
+// Snapshot mode
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SnapshotMode {
+    Grid,
+    Raw,
+    Both,
+}
+
+impl SnapshotMode {
+    pub fn parse(s: &str) -> Result<Self> {
+        match s {
+            "grid" => Ok(Self::Grid),
+            "raw" => Ok(Self::Raw),
+            "both" => Ok(Self::Both),
+            other => bail!("invalid mode: {other}"),
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Supervisor impl
+// ---------------------------------------------------------------------------
 
 impl Default for Supervisor {
     fn default() -> Self {
@@ -55,9 +160,6 @@ impl Supervisor {
         }
     }
 
-    /// Brief map lookup returning a cloned handle. The map lock is released
-    /// immediately — callers then lock the per-session mutex (or its shared
-    /// state), so one session's blocking op never freezes the whole map.
     fn handle(&self, id: &str) -> Result<Arc<SessionHandle>> {
         self.sessions
             .lock()
@@ -67,7 +169,7 @@ impl Supervisor {
             .ok_or_else(|| anyhow!("no session: {id}"))
     }
 
-    pub fn spawn(&self, req: SpawnRequest) -> Result<()> {
+    pub fn spawn(&self, req: SpawnRequest) -> Result<SpawnResult> {
         {
             let map = self.sessions.lock().unwrap();
             if let Some(existing) = map.get(&req.id) {
@@ -77,6 +179,8 @@ impl Supervisor {
             }
         }
         let env: Vec<(String, String)> = req.env.clone();
+        let cast_path = req.cast_path.clone();
+
         // Spawn outside the map lock — openpty/fork must not block other ops.
         let session = PtySession::spawn(SpawnOptions {
             id: req.id.clone(),
@@ -86,16 +190,22 @@ impl Supervisor {
             cols: req.cols,
             rows: req.rows,
             shell: req.shell,
+            cast_path: cast_path.clone(),
         })?;
+
+        let cast_file = cast_path.map(|p| p.to_string_lossy().into_owned());
+
         let handle = Arc::new(SessionHandle {
             cmd: session.cmd.clone(),
-            cols: session.cols(),
-            rows: session.rows(),
             state: session.state(),
             session: Mutex::new(session),
         });
-        self.sessions.lock().unwrap().insert(req.id, handle);
-        Ok(())
+        self.sessions.lock().unwrap().insert(req.id.clone(), handle);
+
+        Ok(SpawnResult {
+            id: req.id,
+            cast_file,
+        })
     }
 
     pub fn send(&self, id: &str, text: &str, with_newline: bool) -> Result<()> {
@@ -109,9 +219,6 @@ impl Supervisor {
     }
 
     pub fn send_key(&self, id: &str, key: &str) -> Result<()> {
-        // CR (\r) is what curses/readline TUIs treat as Enter when the PTY is
-        // in raw mode (ICRNL is off). Cooked-mode REPLs (bash, python) also
-        // accept \r because the line discipline normalises it to \n.
         let bytes: &[u8] = match key {
             "enter" => b"\r",
             "ctrl-c" => &[0x03],
@@ -137,8 +244,6 @@ impl Supervisor {
         timeout_ms: u64,
     ) -> Result<ExpectOutcome> {
         let h = self.handle(id)?;
-        // Hold ONLY this session's lock across the blocking wait. Other
-        // sessions — and lock-free `list`/`snapshot` — stay responsive.
         let mut s = h.session.lock().unwrap();
         let regex_owned = regex
             .map(|r| r.to_string())
@@ -148,29 +253,69 @@ impl Supervisor {
         s.wait_ready(&rules)
     }
 
-    pub fn snapshot(&self, id: &str, tail_lines: Option<usize>) -> Result<SessionSnapshot> {
+    /// Take a snapshot of the session.
+    ///
+    /// `mode`    — which surfaces to return (grid / raw / both).
+    /// `history` — if `Some(n)`, return the last `n` filmstrip frames
+    ///             (clamped to `FILMSTRIP_CAP`). `Some(0)` → no frames.
+    /// `tail_lines` — optional line-count clipping for the grid screen.
+    pub fn snapshot(
+        &self,
+        id: &str,
+        mode: SnapshotMode,
+        history: Option<usize>,
+        tail_lines: Option<usize>,
+    ) -> Result<SessionSnapshot> {
         let h = self.handle(id)?;
         // Read the shared state, not the session lock — works even while the
         // session is mid-`expect`.
         let st = h.state.lock().unwrap();
-        let full = st.screen_text();
-        let screen = match tail_lines {
-            Some(n) => tail_lines_of(&full, n),
-            None => full,
+
+        // Grid surface.
+        let full_grid = st.screen_text();
+        let screen = match mode {
+            SnapshotMode::Raw => String::new(), // backward-compat empty string
+            _ => match tail_lines {
+                Some(n) => tail_lines_of(&full_grid, n),
+                None => full_grid,
+            },
         };
+
+        // Raw surface.
+        let raw = match mode {
+            SnapshotMode::Raw | SnapshotMode::Both => Some(st.raw.clone()),
+            SnapshotMode::Grid => None,
+        };
+
+        // Filmstrip / history surface.
+        let frames: Option<Vec<FilmstripFrameDto>> = match history {
+            None | Some(0) => None,
+            Some(n) => {
+                let cap = n.min(FILMSTRIP_CAP);
+                let total = st.filmstrip.len();
+                let start = total.saturating_sub(cap);
+                let dtos: Vec<FilmstripFrameDto> = st.filmstrip
+                    .iter()
+                    .skip(start)
+                    .map(FilmstripFrameDto::from)
+                    .collect();
+                Some(dtos) // empty vec when no frames yet (R8, S11)
+            }
+        };
+
         Ok(SessionSnapshot {
             id: id.into(),
             status: st.status,
             screen,
             exit_code: st.exit_code,
-            cols: h.cols,
-            rows: h.rows,
+            cols: st.cols,
+            rows: st.rows,
+            raw,
+            frames,
         })
     }
 
     pub fn list(&self) -> Vec<SessionInfo> {
-        // Snapshot the map under a brief lock, then read each session's shared
-        // state — never the (possibly busy) per-session lock.
         let handles: Vec<(String, Arc<SessionHandle>)> = {
             let map = self.sessions.lock().unwrap();
             map.iter().map(|(k, v)| (k.clone(), Arc::clone(v))).collect()
@@ -195,6 +340,16 @@ impl Supervisor {
         s.kill()
     }
 
+    /// Resize the PTY and vt100 grid for a live session.
+    ///
+    /// Order: PTY master first, then vt100 + SessionState under lock.
+    /// Unknown id → `anyhow!("no session: {id}")`.
+    pub fn resize(&self, id: &str, cols: u16, rows: u16) -> Result<()> {
+        let h = self.handle(id)?;
+        let mut s = h.session.lock().unwrap();
+        s.resize(cols, rows)
+    }
+
     pub fn drop_session(&self, id: &str) -> Result<()> {
         self.sessions
             .lock()
@@ -205,33 +360,19 @@ impl Supervisor {
     }
 }
 
-/// Trailing `max_lines` of `full` joined by `\n` — pure string op, no session
-/// state involved.
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
 fn tail_lines_of(full: &str, max_lines: usize) -> String {
     let lines: Vec<&str> = full.lines().collect();
     let start = lines.len().saturating_sub(max_lines);
     lines[start..].join("\n")
 }
 
-#[derive(Debug, Clone, serde::Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct SessionInfo {
-    pub id: String,
-    pub cmd: String,
-    pub status: SessionStatus,
-    pub exit_code: Option<i32>,
-}
-
-#[derive(Debug, Clone, serde::Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct SessionSnapshot {
-    pub id: String,
-    pub status: SessionStatus,
-    pub screen: String,
-    pub exit_code: Option<i32>,
-    pub cols: u16,
-    pub rows: u16,
-}
+// ---------------------------------------------------------------------------
+// Tests
+// ---------------------------------------------------------------------------
 
 #[cfg(test)]
 mod tests {
@@ -255,6 +396,7 @@ mod tests {
             rows: 24,
             prompt_regex: None,
             shell: false,
+            cast_path: None,
         })
         .expect("spawn bash failed");
     }
@@ -263,7 +405,6 @@ mod tests {
     fn spawn_send_expect_bash_roundtrip() {
         let sup = Supervisor::new();
         spawn_bash(&sup, "b1");
-        // wait for first prompt
         let outcome = sup
             .expect("b1", Some(r"\$ $"), 300, 5_000)
             .expect("expect prompt failed");
@@ -276,7 +417,9 @@ mod tests {
             .expect("b1", Some(r"\$ $"), 300, 5_000)
             .expect("expect after echo failed");
         assert!(matches!(after, ExpectOutcome::PromptMatched | ExpectOutcome::Idle));
-        let snap = sup.snapshot("b1", None).unwrap();
+        let snap = sup
+            .snapshot("b1", SnapshotMode::Grid, None, None)
+            .unwrap();
         assert!(snap.screen.contains("mcp-devices"), "snapshot: {}", snap.screen);
         sup.kill("b1").unwrap();
     }
@@ -294,6 +437,7 @@ mod tests {
             rows: 24,
             prompt_regex: None,
             shell: false,
+            cast_path: None,
         });
         assert!(err.is_err());
         sup.kill("b2").unwrap();
@@ -316,38 +460,44 @@ mod tests {
         spawn_bash(&sup, "b4");
         sup.kill("b4").unwrap();
         sleep(Duration::from_millis(100));
-        let snap = sup.snapshot("b4", None).unwrap();
+        let snap = sup.snapshot("b4", SnapshotMode::Grid, None, None).unwrap();
         assert_eq!(snap.status, SessionStatus::Dead);
     }
 
     #[test]
     fn unknown_session_errors() {
         let sup = Supervisor::new();
-        assert!(sup.snapshot("nope", None).is_err());
+        assert!(sup.snapshot("nope", SnapshotMode::Grid, None, None).is_err());
         assert!(sup.send("nope", "x", true).is_err());
         assert!(sup.kill("nope").is_err());
     }
 
     #[test]
+    fn unknown_session_resize_error() {
+        let sup = Supervisor::new();
+        let err = sup.resize("nonexistent", 80, 24).unwrap_err();
+        assert!(
+            err.to_string().contains("no session: nonexistent"),
+            "err: {err}"
+        );
+    }
+
+    #[test]
     fn long_expect_does_not_block_other_sessions() {
-        // The core P1 guarantee: a blocking `expect` on session A must not
-        // freeze `list`/`snapshot` or any op on session B.
         let sup = Arc::new(Supervisor::new());
         spawn_bash(&sup, "la");
         spawn_bash(&sup, "lb");
-        sleep(Duration::from_millis(100)); // let both reach a prompt
+        sleep(Duration::from_millis(100));
 
         let sup2 = Arc::clone(&sup);
         let blocker = thread::spawn(move || {
-            // Unmatchable prompt + long idle => blocks for the full timeout,
-            // holding ONLY la's session lock.
             let _ = sup2.expect("la", Some("NEVER_MATCH_XYZ_QWE$"), 5_000, 1_500);
         });
-        sleep(Duration::from_millis(150)); // ensure expect is in-flight
+        sleep(Duration::from_millis(150));
 
         let t = Instant::now();
         let infos = sup.list();
-        let snap = sup.snapshot("lb", None).unwrap();
+        let snap = sup.snapshot("lb", SnapshotMode::Grid, None, None).unwrap();
         let elapsed = t.elapsed();
 
         assert_eq!(infos.len(), 2);
@@ -381,5 +531,85 @@ mod tests {
             .unwrap();
         assert_eq!(outcome, ExpectOutcome::TimedOut);
         sup.kill("b6").unwrap();
+    }
+
+    #[test]
+    fn snapshot_mode_raw_sets_screen_empty() {
+        let sup = Supervisor::new();
+        spawn_bash(&sup, "raw1");
+        sleep(Duration::from_millis(200));
+        let snap = sup
+            .snapshot("raw1", SnapshotMode::Raw, None, None)
+            .unwrap();
+        assert_eq!(snap.screen, "", "mode:raw must set screen to empty string");
+        assert!(snap.raw.is_some(), "mode:raw must include raw field");
+        sup.kill("raw1").unwrap();
+    }
+
+    #[test]
+    fn snapshot_mode_grid_omits_raw_and_frames() {
+        let sup = Supervisor::new();
+        spawn_bash(&sup, "grid1");
+        sleep(Duration::from_millis(200));
+        let snap = sup
+            .snapshot("grid1", SnapshotMode::Grid, None, None)
+            .unwrap();
+        assert!(snap.raw.is_none(), "mode:grid must not include raw");
+        assert!(snap.frames.is_none(), "mode:grid without history must not include frames");
+        sup.kill("grid1").unwrap();
+    }
+
+    #[test]
+    fn snapshot_empty_history_returns_empty_frames() {
+        let sup = Supervisor::new();
+        spawn_bash(&sup, "hist1");
+        // Don't send anything — no frames captured yet.
+        let snap = sup
+            .snapshot("hist1", SnapshotMode::Grid, Some(10), None)
+            .unwrap();
+        assert!(snap.frames.is_some(), "history truthy must return frames (even if empty)");
+        assert_eq!(snap.frames.unwrap().len(), 0);
+        sup.kill("hist1").unwrap();
+    }
+
+    #[test]
+    fn snapshot_cols_rows_from_session_state() {
+        let sup = Supervisor::new();
+        sup.spawn(SpawnRequest {
+            id: "dim1".into(),
+            cmd: "bash --norc --noprofile".into(),
+            cwd: None,
+            env: vec![("PATH".into(), std::env::var("PATH").unwrap_or_default())],
+            cols: 100,
+            rows: 30,
+            prompt_regex: None,
+            shell: false,
+            cast_path: None,
+        })
+        .unwrap();
+        sleep(Duration::from_millis(100));
+        let snap = sup.snapshot("dim1", SnapshotMode::Grid, None, None).unwrap();
+        assert_eq!(snap.cols, 100);
+        assert_eq!(snap.rows, 30);
+        sup.kill("dim1").unwrap();
+    }
+
+    #[test]
+    fn spawn_result_no_cast_file_when_record_false() {
+        let sup = Supervisor::new();
+        let result = sup.spawn(SpawnRequest {
+            id: "no_cast".into(),
+            cmd: "bash --norc --noprofile".into(),
+            cwd: None,
+            env: vec![("PATH".into(), std::env::var("PATH").unwrap_or_default())],
+            cols: 80,
+            rows: 24,
+            prompt_regex: None,
+            shell: false,
+            cast_path: None,
+        }).unwrap();
+        assert_eq!(result.id, "no_cast");
+        assert!(result.cast_file.is_none(), "no record => no castFile");
+        sup.kill("no_cast").unwrap();
     }
 }

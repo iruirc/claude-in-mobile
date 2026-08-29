@@ -35,9 +35,34 @@ sandboxing arrive in 4.0 with their own ADR.
    `minimalEnv()` in `src/plugins/repl/client.ts`). Per-session environment
    is passed explicitly through `repl_spawn.env` and never sourced from
    `process.env`.
-3. **In-process REPL state.** Session scrollback is never persisted to disk.
-   The supervisor process dies with the MCP server (parent close → child
-   reader EOF → exit), so secrets cannot linger across restarts.
+3. **In-process REPL state.** By default, session scrollback is never
+   persisted to disk. The supervisor process dies with the MCP server (parent
+   close → child reader EOF → exit), so secrets cannot linger across
+   restarts.
+
+   **Sanctioned exception — asciicast v2 tee (4.1.0, ADR-0003):**
+   `repl_spawn` accepts an opt-in `record: true | castPath` flag that tees
+   redacted PTY output to an asciicast v2 file. The following controls apply
+   when recording is active:
+   - **Opt-in only.** `record` defaults to `false`; no recording happens
+     unless the caller explicitly enables it.
+   - **Path confinement.** The file is created inside `std::env::temp_dir()`
+     (both sides canonicalized to resolve macOS `/var→/private/var` symlinks).
+     Paths that escape the temp-dir allowlist are rejected before any file is
+     created.
+   - **Atomic 0600 creation.** `OpenOptions::create_new().mode(0o600)` sets
+     permissions atomically at creation time, not after (no TOCTOU window).
+     `create_new` also prevents symlink-substitution attacks.
+   - **Redacted payload.** All data written to `.cast` passes through the Rust
+     `redaction::redact()` function before the `BufWriter` (same path as
+     `SessionState.raw`). No raw PTY bytes ever reach the file.
+   - **Header scrubbing.** The asciicast header contains only
+     `{version:2, width, height, timestamp}` — no `env` block, no `title`,
+     no other metadata that could carry credentials.
+   - **Best-effort cleanup.** On `repl_kill` or supervisor shutdown the
+     reader thread calls `remove_file` on the `.cast` path; errors are
+     silently ignored so they do not block kill.
+   See ADR-0003 for the full threat-model analysis of this exception.
 4. **No third-party plugins.** Plugins are in-tree only. There is no plugin
    loader for arbitrary directories; manifests are not consumed from
    userland. The runtime contract is published as a separate package

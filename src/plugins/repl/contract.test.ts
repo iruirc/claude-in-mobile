@@ -23,7 +23,7 @@ describe("ReplPlugin manifest specifics", () => {
     expect(REPL_PLUGIN_MANIFEST.capabilities).not.toContain("screen");
   });
 
-  it("registers all 7 MCP tools in manifest.tools", () => {
+  it("registers all 8 MCP tools in manifest.tools (v4.1.0 adds repl_resize)", () => {
     expect(REPL_PLUGIN_MANIFEST.tools).toEqual([
       "repl_spawn",
       "repl_send",
@@ -32,6 +32,18 @@ describe("ReplPlugin manifest specifics", () => {
       "repl_snapshot",
       "repl_list",
       "repl_kill",
+      "repl_resize",
     ]);
+  });
+
+  it("apiVersion is '1' — MUST NOT be bumped (BLOCKER B: ApiVersionMismatchError on registration)", () => {
+    // SYNC ANCHOR: kernel constant PLUGIN_API_VERSION='1' (packages/plugin-api/src/index.ts:10).
+    // registry.ts and contract-suite.ts both assert manifest.apiVersion==PLUGIN_API_VERSION.
+    // mod.rs bail! on mismatch. Bumping this = registration failure for the repl plugin.
+    expect(REPL_PLUGIN_MANIFEST.apiVersion).toBe("1");
+  });
+
+  it("version is 4.1.0 (TUI observability release)", () => {
+    expect(REPL_PLUGIN_MANIFEST.version).toBe("4.1.0");
   });
 });

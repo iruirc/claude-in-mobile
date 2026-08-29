@@ -5,6 +5,9 @@
 //! PTY sessions. JSON-RPC command dispatch over stdio is added in Phase 9 by
 //! the TypeScript-side plugin (`src/plugins/repl/`).
 
+// redaction MUST be first — session/supervisor/bridge depend on it.
+pub mod redaction;
+
 pub mod bridge;
 pub mod expect;
 pub mod prompt_profiles;
@@ -28,7 +31,7 @@ impl ReplPlugin {
             manifest: PluginManifest {
                 id: "repl".into(),
                 name: "REPL".into(),
-                version: "3.11.0".into(),
+                version: "4.1.0".into(),
                 api_version: "1".into(),
                 capabilities: vec![Capability::Terminal, Capability::Input],
                 tools: vec![
@@ -39,6 +42,7 @@ impl ReplPlugin {
                     "repl_snapshot".into(),
                     "repl_list".into(),
                     "repl_kill".into(),
+                    "repl_resize".into(),
                 ],
                 description: Some(
                     "Interactive REPL automation (python/node/bash/...) via PTY + vt100 emulator"
@@ -78,6 +82,15 @@ mod tests {
     use super::*;
     use crate::kernel::Registry;
     use std::sync::Arc;
+
+    #[test]
+    fn manifest_tool_count_and_version() {
+        let p = ReplPlugin::new();
+        let manifest = p.manifest();
+        assert_eq!(manifest.tools.len(), 8, "Expected 8 tools (7 legacy + repl_resize)");
+        assert_eq!(manifest.version, "4.1.0");
+        assert_eq!(manifest.api_version, "1");
+    }
 
     #[test]
     fn manifest_advertises_terminal_capability() {

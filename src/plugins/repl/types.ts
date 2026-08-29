@@ -3,6 +3,10 @@
  *
  * These mirror cli/src/plugins/repl/supervisor.rs serialization. Keep both
  * sides in sync — Rust uses `#[serde(rename_all = "camelCase")]`.
+ *
+ * SYNC ANCHOR: SessionSnapshot here must mirror supervisor.rs SessionSnapshot
+ * (serde camelCase). New optional fields added here must have a matching
+ * #[serde(skip_serializing_if = "Option::is_none")] field in Rust.
  */
 
 export type SessionStatus = "starting" | "ready" | "busy" | "dead";
@@ -14,14 +18,49 @@ export interface SessionInfo {
   exitCode: number | null;
 }
 
+/**
+ * A single filmstrip frame — a point-in-time snapshot of the vt100 grid.
+ * `ts` is Unix epoch milliseconds; `grid` is the redacted screen contents.
+ *
+ * SYNC ANCHOR: matches FilmstripFrame in supervisor.rs (serde camelCase,
+ * ts = u64 millis, grid = String).
+ */
+export interface FilmstripFrame {
+  /** Unix epoch milliseconds when the frame was captured. */
+  ts: number;
+  /** Redacted vt100-rendered grid content at capture time. */
+  grid: string;
+}
+
+/**
+ * Snapshot response — the core legacy shape is {id, status, screen, exitCode,
+ * cols, rows}. New optional fields (raw, frames) use
+ * skip_serializing_if=Option::is_none on the Rust side so old clients never
+ * see them.
+ */
 export interface SessionSnapshot {
   id: string;
   status: SessionStatus;
+  /** vt100-rendered grid (always present; redacted by both Rust + TS). */
   screen: string;
   exitCode: number | null;
   cols: number;
   rows: number;
+  /**
+   * Present when mode is 'raw' or 'both'. Contains the capped, redacted PTY
+   * byte stream (RAW_BUFFER_CAP_BYTES=256KB). WARNING: raw bytes may carry
+   * ANSI escape sequences that split secrets; mode:'grid' gives stronger
+   * redaction guarantees (S28).
+   */
+  raw?: string;
+  /**
+   * Present when history is truthy. Chronological filmstrip frames, each
+   * individually redacted. Empty array when no frames captured yet (S11).
+   */
+  frames?: FilmstripFrame[];
 }
+
+export type SnapshotMode = "grid" | "raw" | "both";
 
 export type ExpectKind = "promptMatched" | "idle" | "exited" | "timedOut";
 
@@ -44,6 +83,22 @@ export interface SpawnArgs {
    * argv-split and exec'd directly with no shell.
    */
   shell?: boolean;
+  /**
+   * When true, tee PTY output to an asciicast v2 file in the plugin temp dir.
+   * When a string, treated as a castPath override (path-traversal is rejected
+   * server-side; only paths inside the temp-dir allowlist are accepted).
+   * Spawn result will include castFile when recording is active.
+   */
+  record?: boolean | string;
+}
+
+export interface SpawnResult {
+  id: string;
+  /**
+   * Absolute path to the asciicast v2 file when record was requested.
+   * Omitted when recording was not requested (S13).
+   */
+  castFile?: string;
 }
 
 export interface SendArgs {
@@ -76,6 +131,28 @@ export interface ExpectArgs {
 export interface SnapshotArgs {
   id: string;
   tail?: number;
+  /**
+   * Which surface to return. Default 'grid' preserves the legacy shape.
+   * - 'grid': vt100-rendered screen (strongest redaction, always safe).
+   * - 'raw': capped raw PTY byte stream (ANSI escapes present — less safe,
+   *          see S28; redaction is applied best-effort).
+   * - 'both': both grid and raw fields present.
+   * Invalid values are rejected at the bridge layer (S4).
+   */
+  mode?: SnapshotMode;
+  /**
+   * When truthy, include filmstrip history.
+   * - true or absent number: return last ~10 frames.
+   * - N (positive integer): return last N frames.
+   * Returns frames:[] when none captured yet (S11).
+   */
+  history?: boolean | number;
+}
+
+export interface ResizeArgs {
+  id: string;
+  cols: number;
+  rows: number;
 }
 
 export interface KillArgs {
