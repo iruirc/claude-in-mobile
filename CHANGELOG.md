@@ -15,6 +15,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `mcp-devices setup grok` / `--global`, and an `--init grok` config snippet:
   `grok plugin marketplace add AlexGladkov/claude-in-mobile` then
   `grok plugin install mcp-devices --trust`.
+- **REPL/TUI observability.** `repl_snapshot` gains `mode: 'grid' | 'raw' | 'both'`
+  and `history: true | N` — the raw byte stream plus a 50-frame grid filmstrip turn
+  point-in-time snapshots into a timeline for pinning down console issues. New
+  `repl_resize` performs a real PTY resize (`MasterPty::resize` + vt100 `set_size`,
+  cols/rows clamped 1..=1000). `repl_spawn` gains opt-in asciicast v2 recording
+  (`record` / `castPath`) written from the reader thread (`create_new` + `0600`,
+  confined to the temp dir, no external asciinema needed). Secret redaction now runs
+  Rust-side before any byte is retained or written to disk (new
+  `cli/src/plugins/repl/redaction.rs`, fail-closed, kept in lockstep with the
+  TypeScript patterns by a parity test). Zero new crates; all existing `repl_*`
+  contracts unchanged (`repl_resize` is additive) and `apiVersion` stays `1`.
 
 ### Fixed
 - **#60 — iOS `ui` tool: three defects fixed at their shared roots.**
