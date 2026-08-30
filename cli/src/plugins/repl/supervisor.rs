@@ -219,18 +219,7 @@ impl Supervisor {
     }
 
     pub fn send_key(&self, id: &str, key: &str) -> Result<()> {
-        let bytes: &[u8] = match key {
-            "enter" => b"\r",
-            "ctrl-c" => &[0x03],
-            "ctrl-d" => &[0x04],
-            "ctrl-z" => &[0x1a],
-            "tab" => b"\t",
-            "up" => b"\x1b[A",
-            "down" => b"\x1b[B",
-            "left" => b"\x1b[D",
-            "right" => b"\x1b[C",
-            _ => bail!("unknown key: {key}"),
-        };
+        let bytes = key_bytes(key)?;
         let h = self.handle(id)?;
         let mut s = h.session.lock().unwrap();
         s.write_bytes(bytes)
@@ -363,6 +352,65 @@ impl Supervisor {
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
+
+/// Map a symbolic key name to the byte sequence it should send to the PTY.
+///
+/// The returned slice is `'static` so it can be passed directly to
+/// [`PtySession::write_bytes`] without any allocation.
+///
+/// # Errors
+///
+/// Returns `Err` when `key` is not a recognised name, preserving the
+/// contract that callers get an actionable message instead of silent nops.
+///
+/// # Examples
+///
+/// ```
+/// # use mcp_devices::plugins::repl::supervisor::key_bytes;
+/// assert_eq!(key_bytes("enter").unwrap(), b"\r");
+/// assert_eq!(key_bytes("backspace").unwrap(), &[0x7f]);
+/// assert!(key_bytes("rocket-launch").is_err());
+/// ```
+pub fn key_bytes(key: &str) -> Result<&'static [u8]> {
+    let bytes: &[u8] = match key {
+        // ── pre-existing keys (must not change) ──────────────────────────────
+        "enter"   => b"\r",
+        "ctrl-c"  => &[0x03],
+        "ctrl-d"  => &[0x04],
+        "ctrl-z"  => &[0x1a],
+        "tab"     => b"\t",
+        "up"      => b"\x1b[A",
+        "down"    => b"\x1b[B",
+        "left"    => b"\x1b[D",
+        "right"   => b"\x1b[C",
+
+        // ── editing / navigation ─────────────────────────────────────────────
+        "backspace"        => &[0x7f],
+        "esc" | "escape"   => &[0x1b],
+        "delete"           => b"\x1b[3~",
+        "home"             => b"\x1b[H",
+        "end"              => b"\x1b[F",
+        "pageup"           => b"\x1b[5~",
+        "pagedown"         => b"\x1b[6~",
+        "shift-tab"        => b"\x1b[Z",
+        "space"            => b" ",
+
+        // ── ctrl combos ──────────────────────────────────────────────────────
+        "ctrl-a" => &[0x01],
+        "ctrl-e" => &[0x05],
+        "ctrl-u" => &[0x15],
+        "ctrl-k" => &[0x0b],
+        "ctrl-w" => &[0x17],
+        "ctrl-l" => &[0x0c],
+        "ctrl-o" => &[0x0f],
+        "ctrl-p" => &[0x10],
+        "ctrl-n" => &[0x0e],
+        "ctrl-r" => &[0x12],
+
+        _ => bail!("unknown key: {key}"),
+    };
+    Ok(bytes)
+}
 
 fn tail_lines_of(full: &str, max_lines: usize) -> String {
     let lines: Vec<&str> = full.lines().collect();
@@ -520,6 +568,67 @@ mod tests {
         sup.send_key("b5", "enter").unwrap();
         assert!(sup.send_key("b5", "rocket-launch").is_err());
         sup.kill("b5").unwrap();
+    }
+
+    // ── key_bytes unit tests (no live session needed) ─────────────────────
+
+    /// Verify that legacy keys preserved their exact byte sequences.
+    #[test]
+    fn key_bytes_legacy_keys_unchanged() {
+        assert_eq!(key_bytes("enter").unwrap(), b"\r");
+        assert_eq!(key_bytes("ctrl-c").unwrap(), &[0x03]);
+        assert_eq!(key_bytes("ctrl-d").unwrap(), &[0x04]);
+        assert_eq!(key_bytes("ctrl-z").unwrap(), &[0x1a]);
+        assert_eq!(key_bytes("tab").unwrap(), b"\t");
+        assert_eq!(key_bytes("up").unwrap(), b"\x1b[A");
+        assert_eq!(key_bytes("down").unwrap(), b"\x1b[B");
+        assert_eq!(key_bytes("left").unwrap(), b"\x1b[D");
+        assert_eq!(key_bytes("right").unwrap(), b"\x1b[C");
+    }
+
+    /// Parametrised coverage for every newly-added key.
+    #[test]
+    fn key_bytes_new_keys() {
+        let cases: &[(&str, &[u8])] = &[
+            ("backspace",  &[0x7f]),
+            ("esc",        &[0x1b]),
+            ("escape",     &[0x1b]),
+            ("delete",     b"\x1b[3~"),
+            ("home",       b"\x1b[H"),
+            ("end",        b"\x1b[F"),
+            ("pageup",     b"\x1b[5~"),
+            ("pagedown",   b"\x1b[6~"),
+            ("shift-tab",  b"\x1b[Z"),
+            ("space",      b" "),
+            ("ctrl-a",     &[0x01]),
+            ("ctrl-e",     &[0x05]),
+            ("ctrl-u",     &[0x15]),
+            ("ctrl-k",     &[0x0b]),
+            ("ctrl-w",     &[0x17]),
+            ("ctrl-l",     &[0x0c]),
+            ("ctrl-o",     &[0x0f]),
+            ("ctrl-p",     &[0x10]),
+            ("ctrl-n",     &[0x0e]),
+            ("ctrl-r",     &[0x12]),
+        ];
+        for (name, expected) in cases {
+            let got = key_bytes(name)
+                .unwrap_or_else(|e| panic!("key_bytes({name:?}) failed: {e}"));
+            assert_eq!(
+                got, *expected,
+                "key {name:?}: expected {expected:x?}, got {got:x?}",
+            );
+        }
+    }
+
+    /// Unknown key names must still produce a descriptive error.
+    #[test]
+    fn key_bytes_unknown_key_bails() {
+        let err = key_bytes("rocket-launch").unwrap_err();
+        assert!(
+            err.to_string().contains("unknown key: rocket-launch"),
+            "unexpected error message: {err}",
+        );
     }
 
     #[test]

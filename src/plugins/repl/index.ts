@@ -202,13 +202,26 @@ export class ReplPlugin implements SourcePlugin {
       {
         name: "repl_key",
         description:
-          "Send a control key (enter/ctrl-c/ctrl-d/tab/arrows) to a session.",
+          "Send a named key to a session. Editing/navigation for driving TUIs. " +
+          "Supported: enter, tab, shift-tab, space, backspace, esc (alias escape), " +
+          "delete, home, end, pageup, pagedown, up, down, left, right, " +
+          "ctrl-a, ctrl-c, ctrl-d, ctrl-e, ctrl-k, ctrl-l, ctrl-n, ctrl-o, ctrl-p, " +
+          "ctrl-r, ctrl-u, ctrl-w, ctrl-z. For plain characters use repl_send.",
         inputSchema: {
           type: "object",
           required: ["id", "key"],
           properties: {
             id: { type: "string" },
-            key: { type: "string" },
+            key: {
+              type: "string",
+              enum: [
+                "enter", "tab", "shift-tab", "space", "backspace", "esc", "escape",
+                "delete", "home", "end", "pageup", "pagedown",
+                "up", "down", "left", "right",
+                "ctrl-a", "ctrl-c", "ctrl-d", "ctrl-e", "ctrl-k", "ctrl-l",
+                "ctrl-n", "ctrl-o", "ctrl-p", "ctrl-r", "ctrl-u", "ctrl-w", "ctrl-z",
+              ],
+            },
           },
         },
         handler: (args) => this.key(args as KeyArgs),
