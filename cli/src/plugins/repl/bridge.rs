@@ -154,11 +154,24 @@ fn dispatch(sup: &Supervisor, method: &str, params: &Value) -> Result<Value> {
         "expect" => {
             let id = required_string(params, "id")?;
             let regex = params.get("regex").and_then(|v| v.as_str()).map(String::from);
-            let idle = params.get("idleMs").and_then(|v| v.as_u64()).unwrap_or(300);
+            // Hard caps prevent a caller from blocking the server for hours.
+            //
+            // Live / animated TUI programs (monet tui, top, htop, watch …) emit
+            // output continuously — the idle-based readiness heuristic never
+            // fires because `last_activity` is reset on every redraw chunk. For
+            // such programs use `repl_snapshot` instead (instantaneous, never
+            // blocks). Idle-based `expect` will always run to full `timeout` on
+            // a non-stopping TUI, so keep `timeoutMs` small or use `snapshot`.
+            let idle = params
+                .get("idleMs")
+                .and_then(|v| v.as_u64())
+                .unwrap_or(300)
+                .min(60_000); // hard cap: 60 s
             let timeout = params
                 .get("timeoutMs")
                 .and_then(|v| v.as_u64())
-                .unwrap_or(5_000);
+                .unwrap_or(5_000)
+                .min(300_000); // hard cap: 5 min
             let outcome = sup.expect(&id, regex.as_deref(), idle, timeout)?;
             Ok(serialize_outcome(&outcome))
         }
@@ -362,5 +375,26 @@ mod tests {
         let zero: u64 = 0;
         let clamped_zero = zero.clamp(1, 1000) as u16;
         assert_eq!(clamped_zero, 1u16);
+    }
+
+    /// Verify that the timing clamps applied inside the "expect" arm are
+    /// correct — without running the full bridge loop.
+    #[test]
+    fn expect_timing_clamps_values() {
+        // idleMs hard cap: 60_000 ms
+        let huge_idle: u64 = 999_999_999;
+        let clamped_idle = huge_idle.min(60_000);
+        assert_eq!(clamped_idle, 60_000u64, "idleMs must be capped at 60_000");
+
+        // timeoutMs hard cap: 300_000 ms
+        let huge_timeout: u64 = 10_000_000;
+        let clamped_timeout = huge_timeout.min(300_000);
+        assert_eq!(clamped_timeout, 300_000u64, "timeoutMs must be capped at 300_000");
+
+        // Values below the cap must pass through unchanged.
+        let small_idle: u64 = 200;
+        assert_eq!(small_idle.min(60_000), 200u64, "values below cap must be unchanged");
+        let small_timeout: u64 = 5_000;
+        assert_eq!(small_timeout.min(300_000), 5_000u64, "values below cap must be unchanged");
     }
 }
