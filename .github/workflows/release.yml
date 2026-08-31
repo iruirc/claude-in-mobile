@@ -301,6 +301,16 @@ jobs:
     # stable tap must not be jumped to a dev build. verify-checksums depends on
     # this job, so it is skipped for prereleases too.
     if: needs.setup.outputs.prerelease == 'false'
+    # Publish the formula to BOTH taps so users on either can upgrade: the
+    # unified tap (flat root layout) and the legacy per-product tap (Formula/
+    # subdir). HOMEBREW_TAP_TOKEN must have write access to BOTH repos.
+    strategy:
+      matrix:
+        include:
+          - repo: AlexGladkov/homebrew-tap
+            formula: mcp-devices.rb
+          - repo: AlexGladkov/homebrew-claude-in-mobile
+            formula: Formula/mcp-devices.rb
 
     steps:
       - name: Extract version from tag
@@ -337,7 +347,7 @@ jobs:
       - name: Checkout Homebrew tap
         uses: actions/checkout@v4
         with:
-          repository: AlexGladkov/homebrew-tap
+          repository: ${{ matrix.repo }}
           token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
           path: homebrew-tap
 
@@ -346,15 +356,17 @@ jobs:
         env:
           SHA_MAP: ${{ steps.sha.outputs.map }}
           VERSION: ${{ steps.version.outputs.version }}
+          FORMULA: ${{ matrix.formula }}
         run: |
           python3 - <<'PYTHON'
           import json, os, re
 
           version = os.environ["VERSION"]
           sha_map = json.loads(os.environ["SHA_MAP"])
-          # Unified tap keeps formulae at the repo root (flat layout), not Formula/.
-          # The formula is seeded once into the tap out-of-band; this job patches it.
-          path = "mcp-devices.rb"
+          # Formula path differs per tap: unified tap keeps it at the repo root,
+          # the legacy tap under Formula/. The file is seeded out-of-band; this
+          # job patches version + shas in place.
+          path = os.environ["FORMULA"]
 
           with open(path) as f:
               content = f.read()
@@ -382,7 +394,7 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add mcp-devices.rb
+          git add "${{ matrix.formula }}"
           git diff --cached --quiet && exit 0
           git commit -m "Update mcp-devices to ${{ steps.version.outputs.version }}"
           git push
