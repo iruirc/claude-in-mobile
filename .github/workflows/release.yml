@@ -337,7 +337,7 @@ jobs:
       - name: Checkout Homebrew tap
         uses: actions/checkout@v4
         with:
-          repository: AlexGladkov/homebrew-claude-in-mobile
+          repository: AlexGladkov/homebrew-tap
           token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
           path: homebrew-tap
 
@@ -352,7 +352,9 @@ jobs:
 
           version = os.environ["VERSION"]
           sha_map = json.loads(os.environ["SHA_MAP"])
-          path = "Formula/mcp-devices.rb"
+          # Unified tap keeps formulae at the repo root (flat layout), not Formula/.
+          # The formula is seeded once into the tap out-of-band; this job patches it.
+          path = "mcp-devices.rb"
 
           with open(path) as f:
               content = f.read()
@@ -380,7 +382,7 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add Formula/mcp-devices.rb
+          git add mcp-devices.rb
           git diff --cached --quiet && exit 0
           git commit -m "Update mcp-devices to ${{ steps.version.outputs.version }}"
           git push
@@ -403,11 +405,11 @@ jobs:
         run: |
           VERSION="${{ steps.version.outputs.version }}"
           REPO="AlexGladkov/claude-in-mobile"
-          TAP_REPO="AlexGladkov/homebrew-claude-in-mobile"
+          TAP_REPO="AlexGladkov/homebrew-tap"
           FAILED=0
 
           echo "::group::Fetching formula from tap"
-          gh api "repos/${TAP_REPO}/contents/Formula/mcp-devices.rb" --jq '.content' | base64 -d > formula.rb
+          gh api "repos/${TAP_REPO}/contents/mcp-devices.rb" --jq '.content' | base64 -d > formula.rb
           cat formula.rb
           echo "::endgroup::"
 

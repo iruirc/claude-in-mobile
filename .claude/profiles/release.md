@@ -231,12 +231,16 @@ CI его исключает.)
 - [ ] **GitHub:** `gh release view vX.Y.Z --json assets` — 2 ассета
   (darwin-arm64 + darwin-x86_64), размер 3-9 MB каждый. Если ~20 MB —
   это случайно собрали Node-бандл, удалить релиз и пересобрать.
-- [ ] **npm:** `npm view claude-in-mobile@X.Y.Z version` — версия
-  опубликована. `npm view claude-in-mobile dist-tags` — `latest` поднят
+- [ ] **npm:** `npm view mcp-devices@X.Y.Z version` — версия
+  опубликована. `npm view mcp-devices dist-tags` — `latest` поднят
   на новую версию.
-- [ ] **Homebrew:** `brew update && brew upgrade claude-in-mobile` —
-  переходит на новую версию. `claude-in-mobile --version` → `X.Y.Z`.
-  Если brew просит trust — `brew trust alexgladkov/claude-in-mobile`.
+- [ ] **Homebrew (unified tap `AlexGladkov/homebrew-tap`):**
+  `brew update && brew upgrade alexgladkov/tap/mcp-devices` —
+  переходит на новую версию. `mcp-devices --version` → `X.Y.Z`.
+  Первая установка: `brew install alexgladkov/tap/mcp-devices`
+  (старый `claude-in-mobile` мигрирует через `oldname`).
+  Формула лежит в КОРНЕ tap (`mcp-devices.rb`), не в `Formula/`.
+  Если brew просит trust — `brew trust alexgladkov/tap`.
   Если `--version` показывает старую версию при обновлённом Cellar —
   проверить `ls -la $(which claude-in-mobile)`: npm-g симлинк может
   перекрывать brew-бинарь (тот же prefix); обновить и npm-g копию.
