@@ -7,7 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [4.1.0] — 2026-08-29
+## [4.1.0] — 2026-08-31
 
 ### Added
 - **Grok Build plugin support (#61).** Native `.grok-plugin` marketplace and
@@ -26,6 +26,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `cli/src/plugins/repl/redaction.rs`, fail-closed, kept in lockstep with the
   TypeScript patterns by a parity test). Zero new crates; all existing `repl_*`
   contracts unchanged (`repl_resize` is additive) and `apiVersion` stays `1`.
+  `repl_key` now covers the full editing/navigation set (`backspace`, `esc`,
+  `delete`, `home`, `end`, `pageup`, `pagedown`, `shift-tab`, `space`,
+  `ctrl-a/e/k/l/n/o/p/r/u/w`) so input fields, dialogs and long lists in a TUI are
+  actually drivable. Expect timing is clamped (`idleMs` ≤ 60s, `timeoutMs` ≤ 5min)
+  so driving a continuously-redrawing TUI can never hang the harness; a live-TUI
+  regression test guards this.
 
 ### Fixed
 - **#60 — iOS `ui` tool: three defects fixed at their shared roots.**
