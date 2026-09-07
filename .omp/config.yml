@@ -1,0 +1,19 @@
+modelRoles:
+  agent_critical: openai-codex/gpt-5.6-sol:xhigh
+  agent_implementation: openai-codex/gpt-5.6-sol:high
+  agent_support: openai-codex/gpt-5.6-terra:high
+
+task:
+  agentModelOverrides:
+    architect-reviewer: "@agent_critical"
+    security-auditor: "@agent_critical"
+    code-reviewer: "@agent_critical"
+    mcp-developer: "@agent_implementation"
+    typescript-pro: "@agent_implementation"
+    rust-engineer: "@agent_implementation"
+    swift-expert: "@agent_implementation"
+    kotlin-specialist: "@agent_implementation"
+    security-engineer: "@agent_implementation"
+    devops-engineer: "@agent_support"
+    test-automator: "@agent_support"
+    performance-engineer: "@agent_support"

@@ -13,3 +13,4 @@ docs/plans/
 .claude/worktrees/
 mcp-devices-*.tgz
 claude-in-mobile-*.tgz
+.omp/plugins/
