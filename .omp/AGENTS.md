@@ -40,7 +40,7 @@ Runtime assignments live in `.omp/config.yml`:
 | Tier | Model | Effort | Agents |
 |---|---|---|---|
 | critical review | `openai-codex/gpt-5.6-sol` | `xhigh` | `architect-reviewer`, `security-auditor`, `code-reviewer` |
-| implementation | `openai-codex/gpt-5.6-sol` | `high` | `mcp-developer`, language specialists, `security-engineer` |
+| implementation | `openai-codex/gpt-5.6-luna` | `max` | `mcp-developer`, language specialists, `security-engineer` |
 | support | `openai-codex/gpt-5.6-terra` | `high` | `devops-engineer`, `test-automator`, `performance-engineer` |
 
 Do not pass a task-level `effort` override unless the user explicitly requests a different effort for that dispatch.
