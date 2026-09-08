@@ -96,4 +96,32 @@ describe("WDAManager build path", () => {
 
     expect(existsSync(buildArgsLog)).toBe(false);
   });
+
+  it("targets a booted simulator instead of a hardcoded device name", async () => {
+    const manager = new WDAManager();
+    harness(manager).derivedDataRoot = derivedDataRoot;
+
+    await harness(manager).buildWDAIfNeeded(wdaPath);
+
+    const args = readFileSync(buildArgsLog, "utf8");
+    expect(args).toContain("id=UDID-BOOTED");
+    expect(args).not.toContain("iPhone 14");
+  });
+
+  it("reports that no simulator is available instead of failing obscurely", async () => {
+    writeFileSync(devicesJson, JSON.stringify({ devices: {} }));
+    const manager = new WDAManager();
+    harness(manager).derivedDataRoot = derivedDataRoot;
+
+    await expect(harness(manager).buildWDAIfNeeded(wdaPath)).rejects.toThrow(/no iOS simulator/i);
+  });
+
+  it("builds the simulator runner without code signing", async () => {
+    const manager = new WDAManager();
+    harness(manager).derivedDataRoot = derivedDataRoot;
+
+    await harness(manager).buildWDAIfNeeded(wdaPath);
+
+    expect(readFileSync(buildArgsLog, "utf8")).toContain("CODE_SIGNING_ALLOWED=NO");
+  });
 });

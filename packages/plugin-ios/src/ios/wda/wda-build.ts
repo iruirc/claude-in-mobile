@@ -5,6 +5,8 @@
 import * as fs from "fs";
 import * as path from "path";
 
+import type { IosDevice } from "../types.js";
+
 const RUNNER_APP = "WebDriverAgentRunner-Runner.app";
 
 /**
@@ -30,4 +32,13 @@ function readdirOrEmpty(dir: string): string[] {
   } catch {
     return [];
   }
+}
+
+/**
+ * Booted first: building against an already-running simulator skips a boot, and
+ * `iPhone 14` is not guaranteed to exist on machines with a newer Xcode.
+ */
+export function pickBuildSimulator(devices: IosDevice[]): IosDevice | undefined {
+  const usable = devices.filter((device) => /^(iPhone|iPad)/.test(device.name));
+  return usable.find((device) => device.state === "booted") ?? usable[0];
 }
