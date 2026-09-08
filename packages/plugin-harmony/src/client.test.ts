@@ -1,7 +1,11 @@
 import { writeFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
-import { HdcClient, type HdcExecutor } from "./client.js";
+import {
+  HdcClient,
+  type HdcExecutor,
+  type HdcFetch,
+} from "./client.js";
 
 interface RecordedCall {
   binary: string;
@@ -148,6 +152,108 @@ describe("HdcClient", () => {
 
     expect(client.getLogs({ level: "E", tag: "Demo", lines: 1 })).toBe("E Demo second");
     expect(calls[0]?.args).toEqual(["hilog", "-x"]);
+  });
+
+  it("grants, revokes, and resets only currently granted permissions", () => {
+    const calls: RecordedCall[] = [];
+    const client = new HdcClient({
+      executor: fakeHdc(calls, (args) => {
+        if (args.includes("-b")) return JSON.stringify({ tokenId: 42 });
+        if (args.includes("-i")) {
+          return JSON.stringify({
+            tokenId: 42,
+            permStateList: [
+              { permissionName: "ohos.permission.CAMERA", grantStatus: 0 },
+              { permissionName: "ohos.permission.MICROPHONE", grantStatus: 1 },
+            ],
+          });
+        }
+        return "";
+      }),
+    });
+
+    client.grantPermission("com.example.demo", "ohos.permission.CAMERA", "phone");
+    client.revokePermission("com.example.demo", "ohos.permission.CAMERA", "phone");
+    expect(client.resetPermissions("com.example.demo", "phone")).toBe(
+      "Reset 1 granted permissions for com.example.demo",
+    );
+
+    expect(calls.map((call) => call.args)).toEqual([
+      ["-t", "phone", "shell", "atm", "dump", "-t", "-b", "com.example.demo"],
+      ["-t", "phone", "shell", "atm", "perm", "-g", "-i", "42", "-p", "ohos.permission.CAMERA"],
+      ["-t", "phone", "shell", "atm", "dump", "-t", "-b", "com.example.demo"],
+      ["-t", "phone", "shell", "atm", "perm", "-c", "-i", "42", "-p", "ohos.permission.CAMERA"],
+      ["-t", "phone", "shell", "atm", "dump", "-t", "-b", "com.example.demo"],
+      ["-t", "phone", "shell", "atm", "dump", "-t", "-i", "42"],
+      ["-t", "phone", "shell", "atm", "perm", "-c", "-i", "42", "-p", "ohos.permission.CAMERA"],
+    ]);
+  });
+
+  it("discovers, forwards, inspects, and disposes ArkWeb targets", async () => {
+    const calls: RecordedCall[] = [];
+    const fetcher: HdcFetch = async () => ({
+      ok: true,
+      status: 200,
+      json: async () => [{ id: "page-1", title: "Demo" }],
+    });
+    const client = new HdcClient({
+      executor: fakeHdc(calls, (args) =>
+        args.includes("/proc/net/unix")
+          ? "00000000: 00000002 00000000 00010000 0001 01 1 @webview_devtools_remote_123"
+          : ""
+      ),
+      fetcher,
+    });
+
+    await expect(client.inspectArkWeb(undefined, 9_333, "phone")).resolves.toEqual({
+      socket: "webview_devtools_remote_123",
+      forwardedPort: 9_333,
+      targets: [{ id: "page-1", title: "Demo" }],
+    });
+    client.dispose();
+
+    expect(calls.map((call) => call.args)).toEqual([
+      ["-t", "phone", "shell", "cat", "/proc/net/unix"],
+      ["-t", "phone", "fport", "tcp:9333", "localabstract:webview_devtools_remote_123"],
+      ["-t", "phone", "fport", "rm", "tcp:9333", "localabstract:webview_devtools_remote_123"],
+    ]);
+  });
+
+  it("uses bundle-scoped HDC file commands and ArkXTest filters", () => {
+    const calls: RecordedCall[] = [];
+    const client = new HdcClient({ executor: fakeHdc(calls) });
+
+    client.sandboxList("com.example.demo", "files", "phone");
+    client.sandboxRead("com.example.demo", "files/state.json", 3, "phone");
+    client.sandboxPush("com.example.demo", "/tmp/input", "files/input", "phone");
+    client.sandboxPull("com.example.demo", "files/output", "/tmp/output", "phone");
+    client.runTests(
+      "com.example.demo",
+      "entry_test",
+      "OpenHarmonyTestRunner",
+      {
+        class: "LoginSuite#opens",
+        notClass: "LoginSuite#flaky",
+        timeoutMs: 30_000,
+        dryRun: true,
+      },
+      "phone",
+    );
+
+    expect(calls.map((call) => call.args)).toEqual([
+      ["-t", "phone", "shell", "-b", "com.example.demo", "ls", "-la", "files"],
+      ["-t", "phone", "shell", "-b", "com.example.demo", "cat", "files/state.json"],
+      ["-t", "phone", "file", "send", "-b", "com.example.demo", "/tmp/input", "files/input"],
+      ["-t", "phone", "file", "recv", "-b", "com.example.demo", "files/output", "/tmp/output"],
+      [
+        "-t", "phone", "shell", "aa", "test", "-b", "com.example.demo",
+        "-m", "entry_test", "-s", "unittest", "OpenHarmonyTestRunner",
+        "-s", "class", "LoginSuite#opens",
+        "-s", "notClass", "LoginSuite#flaky",
+        "-s", "timeout", "30000",
+        "-s", "dryRun", "true",
+      ],
+    ]);
   });
 
   it("reports a missing HDC binary with an actionable error", () => {

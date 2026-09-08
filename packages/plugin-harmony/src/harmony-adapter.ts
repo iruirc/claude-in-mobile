@@ -3,6 +3,7 @@ import type {
   AppManagementAdapter,
   CorePlatformAdapter,
   FileTransferAdapter,
+  PermissionAdapter,
   ShellAdapter,
   SyncScreenshotAdapter,
   UrlOpeningAdapter,
@@ -17,6 +18,7 @@ export class HarmonyAdapter
     CorePlatformAdapter,
     AppManagementAdapter,
     AppInventoryAdapter,
+    PermissionAdapter,
     ShellAdapter,
     FileTransferAdapter,
     UrlOpeningAdapter,
@@ -164,6 +166,18 @@ export class HarmonyAdapter
     return this.client.pullFile(remotePath, destination, deviceId);
   }
 
+  grantPermission(bundleId: string, permission: string, deviceId?: string): string {
+    return this.client.grantPermission(bundleId, permission, deviceId);
+  }
+
+  revokePermission(bundleId: string, permission: string, deviceId?: string): string {
+    return this.client.revokePermission(bundleId, permission, deviceId);
+  }
+
+  resetPermissions(bundleId: string, deviceId?: string): string {
+    return this.client.resetPermissions(bundleId, deviceId);
+  }
+
   openUrl(url: string, deviceId?: string): string {
     return this.client.openUrl(url, deviceId);
   }
@@ -185,5 +199,9 @@ export class HarmonyAdapter
 
   async getSystemInfo(deviceId?: string): Promise<string> {
     return this.client.getSystemInfo(deviceId);
+  }
+
+  dispose(): void {
+    this.client.dispose();
   }
 }

@@ -13,6 +13,7 @@ import {
   compressScreenshot,
 } from "../utils/image.js";
 import { parseUiHierarchy, UiElement } from "../ui-tree/ui-parser.js";
+import { getUiElements } from "./helpers/get-elements.js";
 
 const STABLE_THRESHOLD_PERCENT = 2;
 
@@ -257,19 +258,13 @@ export const screenshotTools: ToolDefinition[] = [
       const pngBuffer = await ctx.deviceManager.getScreenshotBufferAsync(currentPlat, deviceId);
 
       let uiElements: UiElement[] = [];
-      if (currentPlat === "android" || !currentPlat) {
-        const xml = await ctx.deviceManager.getUiHierarchyAsync("android", deviceId);
-        uiElements = parseUiHierarchy(xml);
-      } else if (currentPlat === "ios") {
-        try {
-          const json = await ctx.deviceManager.getUiHierarchy("ios", deviceId);
-          const tree = JSON.parse(json);
-          uiElements = ctx.iosTreeToUiElements(tree);
-        } catch (iosUiErr: any) {
-          console.error(
-            `[annotate_screenshot] iOS UI hierarchy unavailable: ${iosUiErr?.message}`,
-          );
-        }
+      try {
+        uiElements = (await getUiElements(ctx, currentPlat, deviceId)).elements;
+      } catch (error: unknown) {
+        const message = error instanceof Error ? error.message : String(error);
+        console.error(
+          `[annotate_screenshot] ${currentPlat ?? "android"} UI hierarchy unavailable: ${message}`,
+        );
       }
 
       if (uiElements.length === 0) {

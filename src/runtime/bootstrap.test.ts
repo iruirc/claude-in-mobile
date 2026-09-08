@@ -77,13 +77,13 @@ describe("bootstrapKernel", () => {
     expect(terminalProviders).toEqual(["repl"]);
   });
 
-  it("only browser/desktop have NO permissions capability", async () => {
+  it("exposes permission management on supported mobile platforms", async () => {
     const k = await bootstrapKernelAsync({ platforms: ALL });
     const permProviders = k.resolver
       .resolve({ capabilities: ["permissions"] })
       .map((p) => p.manifest.id)
       .sort();
-    expect(permProviders).toEqual(["android", "ios"]);
+    expect(permProviders).toEqual(["android", "harmony", "ios"]);
   });
 
   it("getPlugin returns typed plugin instance", async () => {
