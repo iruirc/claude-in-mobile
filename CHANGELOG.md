@@ -12,13 +12,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - **HarmonyOS Next platform plugin.** New
   `@mcp-devices/plugin-harmony` uses HDC and ArkXTest for device discovery,
-  screenshots, UI hierarchy, touch and key input, app lifecycle, HAP install,
-  shell commands, HiLog, system information, and file transfer. `HDC_PATH` and
-  `HARMONY_DEVICE_ID` support non-default SDK layouts and deterministic
-  multi-device selection.
-- **HarmonyOS workflow actions.** The shared `system` surface can open URLs and
-  wait for HiLog patterns. `harmony_launch_ability` accepts an optional HAP
-  `moduleName` for module-qualified Ability launches.
+  screenshots and annotations, UI hierarchy, element targeting and waits,
+  touch/key/text input, app lifecycle, HAP install, permissions, shell, HiLog,
+  system information, and file transfer. `HDC_PATH` and `HARMONY_DEVICE_ID`
+  support non-default SDK layouts and deterministic multi-device selection.
+- **HarmonyOS workflow and advanced APIs.** Shared flows and the recorder now
+  execute HarmonyOS actions through the same dispatcher. The Harmony plugin
+  adds module-qualified Ability launches, ArkWeb DevTools discovery/forwarding,
+  debug-signed app sandbox list/read/push/pull, and filtered ArkXTest runs.
+  The shared `system` surface can open URLs, wait for HiLog patterns, and
+  grant, revoke, or reset HarmonyOS runtime permissions.
 - **Capability-driven app and file operations.** `app(action:'list')`,
   `app(action:'uninstall')`, `system(action:'file_push')`, and
   `system(action:'file_pull')` now route through platform adapters instead of
@@ -27,25 +30,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `mcp-devices plugins` and `mcp-devices plugin enable|disable debug`.
   Platform and tool-plugin updates preserve each other's fields in the shared
   configuration file.
-- The native Rust CLI now supports HarmonyOS through HDC for screen capture,
-  coordinate input, JSON UI dumps, app lifecycle, HAP installation, HiLog,
-  system information, shell commands, URL opening, and file transfer. Ability
-  launches accept optional `--ability` and `--module` arguments.
+- The native Rust CLI now supports HarmonyOS through HDC for screen capture
+  and annotations, screen dimensions, coordinate and element input, UI waits
+  and assertions, JSON flows, recorded-scenario playback, app lifecycle,
+  permissions, app-sandbox access, ArkWeb inspection, ArkXTest execution, HAP
+  installation, HiLog, system information, shell commands, URL opening, and
+  file transfer. Ability launches accept optional `--ability` and `--module`.
 
 ### Fixed
 - Restored `wait_log`, `pid_of`, and `is_running` to the primary `system`
   meta-tool and standalone alias map; their handlers existed but were
   unreachable from the normal MCP surface.
+- Runtime plugin manifests now derive or declare the release version
+  consistently, and Aurora advertises its already-implemented file-transfer
+  capability.
+- Config persistence now creates the selected config directory atomically
+  enough for concurrent callers; its Rust regression no longer mutates the
+  process-wide `HOME` variable.
 
 ### Changed
-- Release verification and npm publishing now cover 14 synchronized version
-  fields and all eight release-coupled scoped packages, including
-  `@mcp-devices/plugin-harmony`. The release lockfile guard now verifies
-  Sharp's Linux optional packages directly instead of relying on the
-  version-sensitive `@emnapi/runtime` occurrence count.
-- The supported Node.js runtime is now 20 or newer, matching the runtime
-  requirement of the MCP SDK's HTTP transport dependency. CI already exercises
-  Node.js 20 and 22.
+- Release verification and npm publishing now cover 23 synchronized
+  versions/manifests and all eight release-coupled scoped packages, including
+  `@mcp-devices/plugin-harmony`. The release lockfile guard verifies Sharp's
+  Linux optional packages directly instead of relying on the version-sensitive
+  `@emnapi/runtime` occurrence count.
+- GitHub workflows now use the Node.js 24-based `actions/checkout@v7` and
+  `actions/setup-node@v7`. The supported application runtime remains Node.js
+  20 or newer; CI exercises Node.js 20 and 22.
 - `mcp-devices doctor` now exits nonzero when any selected platform toolchain
   is missing. The native CLI doctor also checks `hdc` or `HDC_PATH`.
 
