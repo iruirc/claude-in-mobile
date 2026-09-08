@@ -44,6 +44,11 @@ export class AndroidAdapter
     if (!this._webViewInspector) this._webViewInspector = new WebViewInspector(this.client);
     return this._webViewInspector;
   }
+  dispose(): void {
+    this._webViewInspector?.cleanup();
+    this._webViewInspector = undefined;
+  }
+
 
   /** Return a client targeting deviceId without mutating global state. */
   private clientFor(deviceId?: string): AdbClient {

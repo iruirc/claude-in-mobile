@@ -7,6 +7,7 @@ import { DeviceManager } from "../../device-manager.js";
 import {
   parseUiHierarchy,
   desktopHierarchyToUiElements,
+  harmonyHierarchyToUiElements,
   diffUiElements,
   suggestNextActions,
   UiElement,
@@ -103,6 +104,9 @@ async function fetchUiElements(
     const json = await deviceManager.getUiHierarchy("ios");
     const tree = JSON.parse(json);
     return iosTreeToUiElements(tree);
+  } else if (currentPlatform === "harmony") {
+    const json = await deviceManager.getUiHierarchyAsync("harmony", undefined, turbo);
+    return harmonyHierarchyToUiElements(json);
   } else if (currentPlatform === "desktop") {
     const text = await deviceManager.getUiHierarchyAsync("desktop");
     return desktopHierarchyToUiElements(text);
@@ -129,6 +133,11 @@ export function createGetElementsForPlatform(deviceManager: DeviceManager, optio
       const tree = JSON.parse(json);
       const elements = iosTreeToUiElements(tree);
       setCachedElements("ios", elements);
+      return elements;
+    } else if (plat === "harmony") {
+      const json = await deviceManager.getUiHierarchyAsync("harmony", undefined, turbo);
+      const elements = harmonyHierarchyToUiElements(json);
+      setCachedElements("harmony", elements);
       return elements;
     } else if (plat === "desktop") {
       const text = await deviceManager.getUiHierarchyAsync("desktop");

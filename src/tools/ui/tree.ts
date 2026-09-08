@@ -2,6 +2,7 @@ import { defineTool, z } from "../define-tool.js";
 import { platformEnum, deviceIdField } from "../common-schema.js";
 import {
   parseUiHierarchy,
+  harmonyHierarchyToUiElements,
   formatUiTree,
   formatUiTreeSemantic,
   type UiElement,
@@ -61,19 +62,19 @@ export const uiTree = defineTool({
     showAll: z
       .boolean()
       .default(false)
-      .describe("Show all elements including non-interactive ones. Applies to android + ios."),
+      .describe("Show all elements including non-interactive ones. Applies to Android, iOS, and HarmonyOS."),
     compact: z
       .boolean()
       .optional()
-      .describe("Interactive elements only — shortest format. Applies to android + ios."),
+      .describe("Interactive elements only — shortest format. Applies to Android, iOS, and HarmonyOS."),
     format: z
       .string()
       .optional()
-      .describe("'semantic' for role-grouped output (~3x token reduction). Applies to android + ios."),
+      .describe("'semantic' for role-grouped output (~3x token reduction). Applies to Android, iOS, and HarmonyOS."),
     fresh: z
       .boolean()
       .optional()
-      .describe("Bypass the 2-second dedup cache. Applies to android + ios."),
+      .describe("Bypass the 2-second dedup cache. Applies to Android, iOS, and HarmonyOS."),
     platform: platformEnum,
     deviceId: deviceIdField,
   }),
@@ -105,6 +106,12 @@ export const uiTree = defineTool({
             `Error: ${msg}`,
         );
       }
+    }
+
+    if (currentPlatform === "harmony") {
+      const json = await ctx.deviceManager.getUiHierarchyAsync("harmony", deviceId);
+      const elements = harmonyHierarchyToUiElements(json);
+      return textResult(formatAndCacheTree(ctx, "harmony", elements, opts));
     }
 
     const xml = await ctx.deviceManager.getUiHierarchyAsync(platform, deviceId);

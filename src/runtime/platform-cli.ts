@@ -33,6 +33,7 @@ const TOOLCHAIN: Record<PlatformId, { probe: string[]; hint: string }> = {
   web: { probe: [], hint: "Chrome/Chromium — launched on demand by the bundled CDP client" },
   desktop: { probe: ["java"], hint: "JDK for the desktop companion" },
   aurora: { probe: ["flutter-aurora"], hint: "Aurora Flutter SDK (`flutter-aurora`)" },
+  harmony: { probe: ["hdc"], hint: "HarmonyOS SDK toolchains from DevEco Studio (or set HDC_PATH)" },
 };
 
 /** Add platforms (csv / `all`) to the current set, deduped. */
@@ -76,7 +77,7 @@ export function runPlatformCommand(
     }
     case "install": {
       if (rest.length === 0) {
-        console.error("Usage: mcp-devices install <android|ios|web|desktop|aurora|all>...");
+        console.error("Usage: mcp-devices install <android|ios|web|desktop|aurora|harmony|all>...");
         return exit(1);
       }
       const next = applyInstall(resolveEnabledPlatforms(), rest);
@@ -97,8 +98,8 @@ export function runPlatformCommand(
       const targets = rest.length ? applyInstall([], rest) : resolveEnabledPlatforms();
       if (targets.length === 0) {
         console.log("No platforms enabled. `mcp-devices install <platform>` first.");
-      } else {
-        doctorReport(targets);
+      } else if (!doctorReport(targets)) {
+        return exit(1);
       }
       break;
     }
@@ -111,6 +112,8 @@ export interface ProbeResult {
   platform: PlatformId;
   /** Probes that were not found on PATH (empty = ok). */
   missing: string[];
+  /** Executables or absolute paths checked for this verdict. */
+  probes: string[];
   hint: string;
   /** True when this platform needs no external CLI (e.g. web). */
   noExternalCli: boolean;
@@ -123,15 +126,21 @@ export interface ProbeResult {
  */
 export function probePlatform(
   platform: PlatformId,
-  present: (bin: string) => boolean = isBinAvailable
+  present: (bin: string) => boolean = isBinAvailable,
+  harmonyHdcPath?: string,
 ): ProbeResult {
   const tc = TOOLCHAIN[platform];
-  if (tc.probe.length === 0) {
-    return { platform, missing: [], hint: tc.hint, noExternalCli: true };
+  const probes =
+    platform === "harmony" && harmonyHdcPath
+      ? [harmonyHdcPath]
+      : tc.probe;
+  if (probes.length === 0) {
+    return { platform, probes, missing: [], hint: tc.hint, noExternalCli: true };
   }
   return {
     platform,
-    missing: tc.probe.filter((b) => !present(b)),
+    probes,
+    missing: probes.filter((binary) => !present(binary)),
     hint: tc.hint,
     noExternalCli: false,
   };
@@ -142,14 +151,22 @@ export function formatProbe(r: ProbeResult): string {
   if (r.noExternalCli) {
     return `  ${r.platform}: ok (no external CLI required) — ${r.hint}`;
   }
-  const probes = TOOLCHAIN[r.platform].probe.join(", ");
+  const probes = r.probes.join(", ");
   if (r.missing.length === 0) return `  ${r.platform}: ok (${probes})`;
   return `  ${r.platform}: MISSING ${r.missing.join(", ")} — ${r.hint}`;
 }
 
-function doctorReport(platforms: readonly PlatformId[]): void {
+export function doctorReport(
+  platforms: readonly PlatformId[],
+  present: (bin: string) => boolean = isBinAvailable,
+  harmonyHdcPath = process.env.HDC_PATH,
+): boolean {
   console.log("\nToolchain check:");
-  for (const p of platforms) {
-    console.log(formatProbe(probePlatform(p)));
+  let healthy = true;
+  for (const platform of platforms) {
+    const result = probePlatform(platform, present, harmonyHdcPath);
+    console.log(formatProbe(result));
+    if (result.missing.length > 0) healthy = false;
   }
+  return healthy;
 }

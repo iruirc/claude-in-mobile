@@ -2,7 +2,6 @@ import type { ToolDefinition } from "../registry.js";
 import { systemTools } from "../system-tools.js";
 import { clipboardTools } from "../clipboard-tools.js";
 import { permissionTools } from "../permission-tools.js";
-import { auroraTools } from "../aurora-tools.js";
 import { UnknownActionError } from "../../errors.js";
 
 const handlers = new Map<string, ToolDefinition["handler"]>();
@@ -21,23 +20,20 @@ for (const t of clipboardTools) {
 for (const t of permissionTools) {
   handlers.set(t.tool.name, t.handler);
 }
-// file_push -> "file_push", file_pull -> "file_pull"
-for (const t of auroraTools) {
-  handlers.set(t.tool.name, t.handler);
-}
 
 export const systemMeta: ToolDefinition = {
   tool: {
     name: "system",
     description:
-      "System operations, clipboard, permissions, files. shell: run command. logs: device logs. clipboard_*: Android clipboard. permission_*: app permissions. file_*: Aurora file transfer.",
+      "System operations, clipboard, permissions, and file transfer. shell: run command. logs/wait_log: device logs. clipboard_*: Android clipboard. permission_*: app permissions. file_*: capability-driven file transfer.",
     inputSchema: {
       type: "object",
       properties: {
         action: {
           type: "string",
           enum: [
-            "activity", "shell", "wait", "open_url", "logs", "clear_logs", "info", "webview",
+            "activity", "shell", "wait", "open_url", "logs", "wait_log", "clear_logs",
+            "pid_of", "is_running", "info", "webview",
             "clipboard_select", "clipboard_copy", "clipboard_paste", "clipboard_get",
             "permission_grant", "permission_revoke", "permission_reset",
             "file_push", "file_pull",
@@ -47,10 +43,16 @@ export const systemMeta: ToolDefinition = {
         command: { type: "string", description: "Shell command to execute (shell)" },
         url: { type: "string", description: "URL to open (open_url)" },
         ms: { type: "number", description: "Duration in milliseconds (wait, default: 1000)" },
+        pattern: { type: "string", description: "Regex pattern to await (wait_log)" },
+        caseSensitive: { type: "boolean", description: "Case-sensitive log matching (wait_log, default: true)" },
+        timeoutMs: { type: "number", description: "Maximum wait in milliseconds (wait_log)" },
+        pollIntervalMs: { type: "number", description: "Polling interval in milliseconds (wait_log)" },
+        contextLines: { type: "number", description: "Following log lines to include (wait_log)" },
+        clearFirst: { type: "boolean", description: "Clear logs before polling (wait_log)" },
         level: { type: "string", description: "Log level filter (logs)" },
-        tag: { type: "string", description: "Filter by tag (logs, Android only)" },
+        tag: { type: "string", description: "Filter by tag (logs/wait_log)" },
         lines: { type: "number", description: "Number of log lines (logs, default: 100)" },
-        package: { type: "string", description: "Package name (logs, permissions)" },
+        package: { type: "string", description: "Package or bundle ID (logs, wait_log, process, permissions)" },
         permission: { type: "string", description: "Permission to grant/revoke (permission_grant/revoke)" },
         fieldText: { type: "string", description: "Find input field by text before paste (clipboard_paste)" },
         fieldId: { type: "string", description: "Find input field by resource ID before paste (clipboard_paste)" },
@@ -58,8 +60,12 @@ export const systemMeta: ToolDefinition = {
         remotePath: { type: "string", description: "Remote file path (file_push/pull)" },
         platform: {
           type: "string",
-          enum: ["android", "ios", "desktop", "aurora", "browser"],
+          enum: ["android", "ios", "desktop", "aurora", "harmony", "browser"],
           description: "Target platform. If not specified, uses the active target.",
+        },
+        deviceId: {
+          type: "string",
+          description: "Target device ID. If omitted, uses the selected device.",
         },
       },
       required: ["action"],
@@ -80,7 +86,7 @@ export const systemMeta: ToolDefinition = {
     }
 
     const handler = handlers.get(action);
-    if (!handler) throw new UnknownActionError("system", action, ["activity", "shell", "wait", "open_url", "logs", "clear_logs", "info", "webview", "clipboard_select", "clipboard_copy", "clipboard_paste", "clipboard_get", "permission_grant", "permission_revoke", "permission_reset", "file_push", "file_pull", "metrics", "reset_metrics"]);
+    if (!handler) throw new UnknownActionError("system", action, ["activity", "shell", "wait", "open_url", "logs", "wait_log", "clear_logs", "pid_of", "is_running", "info", "webview", "clipboard_select", "clipboard_copy", "clipboard_paste", "clipboard_get", "permission_grant", "permission_revoke", "permission_reset", "file_push", "file_pull", "metrics", "reset_metrics"]);
     return handler(args, ctx, depth);
   },
 };
@@ -92,7 +98,10 @@ export const systemAliases: Record<string, { tool: string; defaults: Record<stri
   system_wait: { tool: "system", defaults: { action: "wait" } },
   system_open_url: { tool: "system", defaults: { action: "open_url" } },
   system_logs: { tool: "system", defaults: { action: "logs" } },
+  system_wait_log: { tool: "system", defaults: { action: "wait_log" } },
   system_clear_logs: { tool: "system", defaults: { action: "clear_logs" } },
+  system_pid_of: { tool: "system", defaults: { action: "pid_of" } },
+  system_is_running: { tool: "system", defaults: { action: "is_running" } },
   system_info: { tool: "system", defaults: { action: "info" } },
   system_webview: { tool: "system", defaults: { action: "webview" } },
   // clipboard tools
@@ -104,7 +113,7 @@ export const systemAliases: Record<string, { tool: string; defaults: Record<stri
   permission_grant: { tool: "system", defaults: { action: "permission_grant" } },
   permission_revoke: { tool: "system", defaults: { action: "permission_revoke" } },
   permission_reset: { tool: "system", defaults: { action: "permission_reset" } },
-  // aurora file tools
+  // capability-driven file tools
   file_push: { tool: "system", defaults: { action: "file_push" } },
   file_pull: { tool: "system", defaults: { action: "file_pull" } },
 };

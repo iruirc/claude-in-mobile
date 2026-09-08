@@ -215,18 +215,36 @@ export class GradleLauncher {
   /**
    * Stop a running Gradle process
    */
-  stop(process: ChildProcess): void {
-    if (process && !process.killed) {
-      // Try graceful shutdown first
-      process.kill("SIGTERM");
-
-      // Force kill after timeout
-      setTimeout(() => {
-        if (!process.killed) {
-          process.kill("SIGKILL");
-        }
-      }, 5000);
+  async stop(child: ChildProcess): Promise<void> {
+    if (child.pid === undefined) return;
+    if (child.exitCode !== null || child.signalCode !== null) return;
+    const gracefulExit = this.waitForExit(child, 1_000);
+    try { child.kill("SIGTERM"); } catch {}
+    if (await gracefulExit) return;
+    if (child.exitCode !== null || child.signalCode !== null) return;
+    const forcedExit = this.waitForExit(child, 1_000);
+    try { child.kill("SIGKILL"); } catch {}
+    if (!await forcedExit) {
+      throw new Error(`Desktop process ${child.pid ?? "unknown"} did not exit after SIGKILL`);
     }
+  }
+
+  private waitForExit(child: ChildProcess, timeoutMs: number): Promise<boolean> {
+    if (child.exitCode !== null || child.signalCode !== null) return Promise.resolve(true);
+    return new Promise((resolve) => {
+      let settled = false;
+      const finish = (exited: boolean) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        child.removeListener("exit", onExit);
+        resolve(exited);
+      };
+      const onExit = () => finish(true);
+      const timer = setTimeout(() => finish(false), timeoutMs);
+      child.once("exit", onExit);
+      if (child.exitCode !== null || child.signalCode !== null) finish(true);
+    });
   }
 
   /**

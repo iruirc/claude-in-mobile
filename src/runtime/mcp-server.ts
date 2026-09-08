@@ -174,7 +174,7 @@ export function createMcpServer(deps: McpServerDeps): McpServerHandle {
   async function start(): Promise<void> {
     const transport = new StdioServerTransport();
     await server.connect(transport);
-    console.error("Claude Mobile MCP server running (Android + iOS + Desktop + Aurora + Browser)");
+    console.error("Claude Mobile MCP server running (Android + iOS + Desktop + Aurora + HarmonyOS + Browser)");
   }
 
   return { server, start };

@@ -13,6 +13,7 @@ export type { Bounds, UiElement, ScreenAnalysis, UiDiffResult } from "./ui-parse
 
 // Node parsing
 export { parseUiHierarchy, desktopHierarchyToUiElements } from "./ui-parser/node-parser.js";
+export { harmonyHierarchyToUiElements } from "./ui-parser/harmony-parser.js";
 
 // Element queries, analysis, diffing
 export {

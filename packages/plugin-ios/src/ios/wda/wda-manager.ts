@@ -1,459 +1,443 @@
-import { execSync, spawn, ChildProcess } from "child_process";
+import { execSync, spawn, type ChildProcess } from "child_process";
 import * as fs from "fs";
 import * as path from "path";
 import * as os from "os";
+import { createServer } from "net";
 import { WDAClient } from "./wda-client.js";
-import { WDAInstanceInfo } from "./wda-types.js";
+import type { WDAInstanceInfo } from "./wda-types.js";
 
-/** Port WDA listens on inside a physical device; the local end is forwarded. */
 const DEVICE_WDA_PORT = 8100;
-/** go-ios binary (overridable, mirrors src/ios/go-ios/client.ts). */
 const GO_IOS_BIN = process.env.GO_IOS_BIN ?? "ios";
+const RESERVED_PORTS = new Set<number>();
+
+interface ManagedInstance extends WDAInstanceInfo {
+  child: ChildProcess;
+  generation: symbol;
+}
+
+interface ManagedForward {
+  child: ChildProcess;
+  generation: symbol;
+  port: number;
+}
 
 export class WDAManager {
-  private instances: Map<string, WDAInstanceInfo> = new Map();
-  private clients: Map<string, WDAClient> = new Map();
-  /** Deduplicates parallel launches for the same device */
-  private launchPromises: Map<string, Promise<WDAClient>> = new Map();
-  /** Long-lived `ios forward` processes for physical devices, by udid. */
-  private forwards: Map<string, ChildProcess> = new Map();
-  private readonly startupTimeout = 30000;
-  /** Physical first-run does a full device build+sign+install — much slower. */
-  private readonly deviceStartupTimeout = 300000;
-  private readonly buildTimeout = 120000;
+  private readonly instances = new Map<string, ManagedInstance>();
+  private readonly clients = new Map<string, WDAClient>();
+  private readonly launchPromises = new Map<string, Promise<WDAClient>>();
+  private readonly forwards = new Map<string, ManagedForward>();
+  private readonly startupTimeout = 30_000;
+  private readonly deviceStartupTimeout = 300_000;
+  private readonly buildTimeout = 120_000;
+  private disposed = false;
+  private cleanupPromise?: Promise<void>;
 
-  async ensureWDAReady(
-    deviceId: string,
-    isSimulator: boolean = true
-  ): Promise<WDAClient> {
-    // Check existing client
-    if (this.clients.has(deviceId)) {
-      const client = this.clients.get(deviceId)!;
+  isClientActive(deviceId: string, client: WDAClient): boolean {
+    const instance = this.instances.get(deviceId);
+    return (
+      this.clients.get(deviceId) === client
+      && instance !== undefined
+      && instance.child.exitCode === null
+      && instance.child.signalCode === null
+    );
+  }
+
+  async ensureWDAReady(deviceId: string, isSimulator = true): Promise<WDAClient> {
+    if (this.disposed) throw new Error("WebDriverAgent manager is disposed");
+
+    const existingClient = this.clients.get(deviceId);
+    if (existingClient && this.isClientActive(deviceId, existingClient)) {
       try {
-        await client.ensureSession(deviceId);
-        return client;
-      } catch (error: unknown) {
-        const msg = error instanceof Error ? error.message : String(error);
-        console.error("WDA client failed, relaunching:", msg);
-        // Clean up failed instance
-        const instance = this.instances.get(deviceId);
-        if (instance) {
-          try {
-            process.kill(instance.pid);
-          } catch {}
-        }
-        this.clients.delete(deviceId);
-        this.instances.delete(deviceId);
-        // Fall through to relaunch
+        await existingClient.ensureSession(deviceId);
+        return existingClient;
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        console.error("WDA client failed, relaunching:", message);
+        await existingClient.deleteSession();
+        await this.stopDevice(deviceId);
       }
+    } else if (existingClient) {
+      await this.stopDevice(deviceId);
     }
 
-    // Deduplicate parallel launches — if another call is already launching
-    // WDA for this device, reuse its promise instead of spawning a second xcodebuild
-    if (this.launchPromises.has(deviceId)) {
-      return this.launchPromises.get(deviceId)!;
-    }
+    const inFlight = this.launchPromises.get(deviceId);
+    if (inFlight) return inFlight;
 
-    const launchPromise = this.doLaunch(deviceId, isSimulator);
-    this.launchPromises.set(deviceId, launchPromise);
-
+    const launch = this.doLaunch(deviceId, isSimulator);
+    this.launchPromises.set(deviceId, launch);
     try {
-      return await launchPromise;
+      return await launch;
     } finally {
-      this.launchPromises.delete(deviceId);
+      if (this.launchPromises.get(deviceId) === launch) {
+        this.launchPromises.delete(deviceId);
+      }
     }
   }
 
-  private async doLaunch(
-    deviceId: string,
-    isSimulator: boolean
-  ): Promise<WDAClient> {
-    const wdaPath = await this.discoverWDA();
-    const port = await this.findFreePort();
-
-    if (isSimulator) {
-      await this.buildWDAIfNeeded(wdaPath);
-      await this.launchWDA(wdaPath, deviceId, port);
-    } else {
-      await this.launchWDADevice(wdaPath, deviceId, port);
+  private async doLaunch(deviceId: string, isSimulator: boolean): Promise<WDAClient> {
+    const live = this.liveInstance(deviceId);
+    if (live) {
+      if (!isSimulator) await this.ensureForward(deviceId, live.port, live.generation);
+      const client = new WDAClient(live.port);
+      try {
+        await client.ensureSession(deviceId);
+        if (this.disposed || this.instances.get(deviceId) !== live) {
+          throw new Error("WebDriverAgent launch was cancelled");
+        }
+        this.clients.set(deviceId, client);
+        return client;
+      } catch (error) {
+        await client.deleteSession();
+        await this.stopDevice(deviceId, live);
+        throw error;
+      }
     }
 
-    const client = new WDAClient(port);
-    await client.ensureSession(deviceId);
+    const wdaPath = await this.discoverWDA();
+    if (isSimulator) await this.buildWDAIfNeeded(wdaPath);
+    const port = await this.reservePort();
+    let instance: ManagedInstance | undefined;
+    let client: WDAClient | undefined;
+    try {
+      if (this.disposed) throw new Error("WebDriverAgent launch was cancelled");
+      instance = isSimulator
+        ? await this.launchSimulator(wdaPath, deviceId, port)
+        : await this.launchDevice(wdaPath, deviceId, port);
+      client = new WDAClient(instance.port);
+      await client.ensureSession(deviceId);
+      if (this.disposed || this.instances.get(deviceId) !== instance) {
+        throw new Error("WebDriverAgent launch was cancelled");
+      }
+      this.clients.set(deviceId, client);
+      return client;
+    } catch (error) {
+      await client?.deleteSession();
+      const published = instance ?? this.instances.get(deviceId);
+      if (published?.port === port) await this.stopDevice(deviceId, published);
+      else RESERVED_PORTS.delete(port);
+      throw error;
+    }
+  }
 
-    this.clients.set(deviceId, client);
-
-    return client;
+  private liveInstance(deviceId: string): ManagedInstance | undefined {
+    const instance = this.instances.get(deviceId);
+    if (!instance) return undefined;
+    if (instance.child.exitCode === null && instance.child.signalCode === null) return instance;
+    if (this.instances.get(deviceId) === instance) this.instances.delete(deviceId);
+    void this.stopForward(deviceId, instance.generation);
+    RESERVED_PORTS.delete(instance.port);
+    return undefined;
   }
 
   private async discoverWDA(): Promise<string> {
     const searchPaths = [
       process.env.WDA_PATH,
-      path.join(
-        os.homedir(),
-        ".appium/node_modules/appium-xcuitest-driver/node_modules/appium-webdriveragent"
-      ),
+      path.join(os.homedir(), ".appium/node_modules/appium-xcuitest-driver/node_modules/appium-webdriveragent"),
       "/opt/homebrew/lib/node_modules/appium/node_modules/appium-xcuitest-driver/node_modules/appium-webdriveragent",
       "/usr/local/lib/node_modules/appium/node_modules/appium-xcuitest-driver/node_modules/appium-webdriveragent",
     ].filter(Boolean) as string[];
 
     for (const searchPath of searchPaths) {
-      if (fs.existsSync(searchPath)) {
-        const projectPath = path.join(searchPath, "WebDriverAgent.xcodeproj");
-        if (fs.existsSync(projectPath)) {
-          return searchPath;
-        }
-      }
+      if (fs.existsSync(path.join(searchPath, "WebDriverAgent.xcodeproj"))) return searchPath;
     }
-
     throw new Error(
       "WebDriverAgent not found.\n\n" +
-        "Install Appium with XCUITest driver:\n" +
-        "  npm install -g appium\n" +
-        "  appium driver install xcuitest\n\n" +
-        "Or set WDA_PATH environment variable:\n" +
-        "  export WDA_PATH=/path/to/WebDriverAgent\n\n" +
-        "Search paths checked:\n" +
-        searchPaths.map((p) => `  - ${p}`).join("\n")
+      "Install Appium with XCUITest driver:\n" +
+      "  npm install -g appium\n" +
+      "  appium driver install xcuitest\n\n" +
+      "Or set WDA_PATH environment variable.\n\n" +
+      `Search paths checked:\n${searchPaths.map((entry) => `  - ${entry}`).join("\n")}`,
     );
   }
 
   private async buildWDAIfNeeded(wdaPath: string): Promise<void> {
-    const buildDir = path.join(wdaPath, "build");
-    if (fs.existsSync(buildDir)) {
-      return;
-    }
-
+    if (fs.existsSync(path.join(wdaPath, "build"))) return;
     console.error("Building WebDriverAgent for first use...");
-
     try {
       execSync(
-        "xcodebuild build-for-testing " +
-          "-project WebDriverAgent.xcodeproj " +
-          "-scheme WebDriverAgentRunner " +
-          "-destination 'platform=iOS Simulator,name=iPhone 14'",
-        {
-          cwd: wdaPath,
-          timeout: this.buildTimeout,
-          stdio: "pipe",
-        }
+        "xcodebuild build-for-testing -project WebDriverAgent.xcodeproj " +
+        "-scheme WebDriverAgentRunner -destination 'platform=iOS Simulator,name=iPhone 14'",
+        { cwd: wdaPath, timeout: this.buildTimeout, stdio: "pipe" },
       );
-    } catch (error: unknown) {
-      const e = error as { stderr?: Buffer | string; stdout?: Buffer | string; message?: string };
-      const detail = e.stderr?.toString() || e.stdout?.toString() || e.message || String(error);
-      throw new Error(
-        "Failed to build WebDriverAgent.\n\n" +
-          `${detail}\n\n` +
-          "Troubleshooting:\n" +
-          "1. Install Xcode: https://apps.apple.com/app/xcode/id497799835\n" +
-          "2. Install command line tools: xcode-select --install\n" +
-          "3. Accept license: sudo xcodebuild -license accept\n" +
-          "4. Set Xcode path: sudo xcode-select -s /Applications/Xcode.app"
-      );
+    } catch (error) {
+      const details = error as { stderr?: Buffer | string; stdout?: Buffer | string; message?: string };
+      const message = details.stderr?.toString() || details.stdout?.toString() || details.message || String(error);
+      throw new Error(`Failed to build WebDriverAgent.\n\n${message}`);
     }
   }
 
-  private async launchWDA(
+  private async launchSimulator(
     wdaPath: string,
     deviceId: string,
-    port: number
-  ): Promise<void> {
-    const existingInstance = this.instances.get(deviceId);
-    if (existingInstance) {
-      try {
-        process.kill(existingInstance.pid, 0);
-        return;
-      } catch {
-        this.instances.delete(deviceId);
-      }
-    }
-
-    const wdaProcess = spawn(
-      "xcodebuild",
-      [
-        "test-without-building",
-        "-project",
-        "WebDriverAgent.xcodeproj",
-        "-scheme",
-        "WebDriverAgentRunner",
-        "-destination",
-        `platform=iOS Simulator,id=${deviceId}`,
-      ],
-      {
-        cwd: wdaPath,
-        env: {
-          ...process.env,
-          USE_PORT: port.toString(),
-        },
-        stdio: "pipe",
-      }
-    );
-
-    this.instances.set(deviceId, {
-      pid: wdaProcess.pid!,
+    port: number,
+  ): Promise<ManagedInstance> {
+    const child = spawn("xcodebuild", [
+      "test-without-building",
+      "-project", "WebDriverAgent.xcodeproj",
+      "-scheme", "WebDriverAgentRunner",
+      "-destination", `platform=iOS Simulator,id=${deviceId}`,
+    ], {
+      cwd: wdaPath,
+      env: { ...process.env, USE_PORT: String(port) },
+      stdio: "pipe",
+    });
+    const instance = this.publishInstance(deviceId, port, child);
+    const output = this.captureOutput(child);
+    const healthy = await this.waitForHealth(
       port,
-      deviceId,
-    });
-
-    const MAX_OUTPUT_CHARS = 50_000;
-    let output = "";
-    const appendOutput = (data: Buffer) => {
-      output += data.toString();
-      if (output.length > MAX_OUTPUT_CHARS) {
-        output = output.slice(output.length - MAX_OUTPUT_CHARS);
-      }
-    };
-    wdaProcess.stdout?.on("data", appendOutput);
-    wdaProcess.stderr?.on("data", appendOutput);
-
-    wdaProcess.on("exit", (code) => {
-      this.instances.delete(deviceId);
-      this.clients.delete(deviceId);
-    });
-
-    const startTime = Date.now();
-    while (Date.now() - startTime < this.startupTimeout) {
-      try {
-        const health = await this.checkHealth(port);
-        if (health) {
-          return;
-        }
-      } catch {
-        // Continue waiting
-      }
-      await new Promise((resolve) => setTimeout(resolve, 1000));
-    }
-
-    try {
-      process.kill(wdaProcess.pid!);
-    } catch {}
-
-    throw new Error(
-      "WebDriverAgent failed to start within 30s.\n\n" +
-        "Troubleshooting:\n" +
-        "1. Check simulator is running: xcrun simctl list | grep Booted\n" +
-        "2. Check logs: ~/Library/Logs/CoreSimulator/" +
-        deviceId +
-        "/system.log\n" +
-        "3. Try manual launch to see errors:\n" +
-        `   cd ${wdaPath}\n` +
-        "   xcodebuild test -project WebDriverAgent.xcodeproj \\\n" +
-        "     -scheme WebDriverAgentRunner \\\n" +
-        `     -destination 'platform=iOS Simulator,id=${deviceId}'\n\n` +
-        `Last output:\n${output.slice(-500)}`
+      this.startupTimeout,
+      () => child.exitCode !== null || child.signalCode !== null,
     );
+    if (!healthy) {
+      throw new Error(
+        `WebDriverAgent failed to start within 30s.\n\nLast output:\n${output().slice(-500)}`,
+      );
+    }
+    return instance;
   }
 
-  /**
-   * Launch WDA on a PHYSICAL device. Unlike the simulator path we use
-   * `xcodebuild test` (build+sign+install+run in one shot, automatic
-   * provisioning) targeting the device destination, then forward the device's
-   * WDA port to a local port via go-ios so the localhost WDAClient is unchanged.
-   */
-  private async launchWDADevice(
+  private async launchDevice(
     wdaPath: string,
-    udid: string,
-    localPort: number
-  ): Promise<void> {
-    const existingInstance = this.instances.get(udid);
-    if (existingInstance) {
-      try {
-        process.kill(existingInstance.pid, 0);
-        this.ensureForward(udid, localPort);
-        return;
-      } catch {
-        this.instances.delete(udid);
-      }
-    }
-
+    deviceId: string,
+    port: number,
+  ): Promise<ManagedInstance> {
     const teamId = this.resolveTeamId();
     if (!teamId) {
       throw new Error(
-        "No Apple Development team found for signing WebDriverAgent on a " +
-          "physical device. Set IOS_TEAM_ID, or sign in to Xcode with an " +
-          "Apple ID that has a development certificate."
+        "No Apple Development team found for signing WebDriverAgent on a physical device. " +
+        "Set IOS_TEAM_ID, or sign in to Xcode with an Apple ID.",
       );
     }
-
-    // The stock runner bundle id `com.facebook.WebDriverAgentRunner` belongs to
-    // Facebook and cannot be provisioned under another team. Override it with a
-    // team-unique id for physical signing (WDA_BUNDLE_ID), defaulting to one
-    // derived from the team so automatic provisioning can register it.
     const bundleId = process.env.WDA_BUNDLE_ID ?? `com.${teamId}.WebDriverAgentRunner`;
-
-    const wdaProcess = spawn(
-      "xcodebuild",
-      [
-        "test",
-        "-project",
-        "WebDriverAgent.xcodeproj",
-        "-scheme",
-        "WebDriverAgentRunner",
-        "-destination",
-        `platform=iOS,id=${udid}`,
-        "-allowProvisioningUpdates",
-        `DEVELOPMENT_TEAM=${teamId}`,
-        "CODE_SIGN_STYLE=Automatic",
-        `PRODUCT_BUNDLE_IDENTIFIER=${bundleId}`,
-      ],
-      {
-        cwd: wdaPath,
-        env: { ...process.env, USE_PORT: DEVICE_WDA_PORT.toString() },
-        stdio: "pipe",
-      }
-    );
-
-    this.instances.set(udid, { pid: wdaProcess.pid!, port: localPort, deviceId: udid });
-
-    const MAX_OUTPUT_CHARS = 50_000;
-    let output = "";
-    const appendOutput = (data: Buffer) => {
-      output += data.toString();
-      if (output.length > MAX_OUTPUT_CHARS) {
-        output = output.slice(output.length - MAX_OUTPUT_CHARS);
-      }
-    };
-    let buildExited = false;
-    wdaProcess.stdout?.on("data", appendOutput);
-    wdaProcess.stderr?.on("data", appendOutput);
-    wdaProcess.on("exit", () => {
-      buildExited = true;
-      this.instances.delete(udid);
-      this.clients.delete(udid);
-      this.stopForward(udid);
+    const child = spawn("xcodebuild", [
+      "test",
+      "-project", "WebDriverAgent.xcodeproj",
+      "-scheme", "WebDriverAgentRunner",
+      "-destination", `platform=iOS,id=${deviceId}`,
+      "-allowProvisioningUpdates",
+      `DEVELOPMENT_TEAM=${teamId}`,
+      "CODE_SIGN_STYLE=Automatic",
+      `PRODUCT_BUNDLE_IDENTIFIER=${bundleId}`,
+    ], {
+      cwd: wdaPath,
+      env: { ...process.env, USE_PORT: String(DEVICE_WDA_PORT) },
+      stdio: "pipe",
     });
-
-    // Forward device WDA port -> local port so localhost WDAClient works.
-    this.ensureForward(udid, localPort);
-
-    const startTime = Date.now();
-    while (Date.now() - startTime < this.deviceStartupTimeout) {
-      try {
-        if (await this.checkHealth(localPort)) return;
-      } catch {
-        // keep waiting through the build
-      }
-      // Fail fast: if xcodebuild died (e.g. a signing error) there is nothing
-      // left to wait for — don't burn the full device timeout.
-      if (buildExited) break;
-      await new Promise((resolve) => setTimeout(resolve, 1500));
-    }
-
-    try {
-      process.kill(wdaProcess.pid!);
-    } catch {}
-    this.stopForward(udid);
-
-    const reason = buildExited
-      ? "the xcodebuild test process exited before WebDriverAgent came up"
-      : `WebDriverAgent did not come up within ${this.deviceStartupTimeout / 1000}s`;
-    throw new Error(
-      `Failed to start WebDriverAgent on the physical device: ${reason}.\n\n` +
-        "Troubleshooting:\n" +
-        "1. Sign in to Xcode with the Apple ID for your team in Xcode > " +
-        "Settings > Accounts (automatic provisioning needs an account, not " +
-        "just a keychain certificate).\n" +
-        "2. Set a team-unique WDA bundle id if signing the stock one fails: " +
-        "export WDA_BUNDLE_ID=com.<you>.WebDriverAgentRunner\n" +
-        "3. Enable Developer Mode on the device (Settings > Privacy & " +
-        "Security > Developer Mode) and trust this Mac.\n" +
-        "4. On iOS 17+, port-forward may need the go-ios tunnel: " +
-        "`sudo ios tunnel start` (or ENABLE_GO_IOS_AGENT=user).\n\n" +
-        `Last output:\n${output.slice(-800)}`
+    const instance = this.publishInstance(deviceId, port, child);
+    const output = this.captureOutput(child);
+    await this.ensureForward(deviceId, port, instance.generation);
+    const healthy = await this.waitForHealth(
+      port,
+      this.deviceStartupTimeout,
+      () => child.exitCode !== null || child.signalCode !== null,
     );
-  }
-
-  /** Start (idempotently) an `ios forward localPort -> DEVICE_WDA_PORT`. */
-  private ensureForward(udid: string, localPort: number): void {
-    if (this.forwards.has(udid)) return;
-    const fwd = spawn(
-      GO_IOS_BIN,
-      ["forward", "--udid", udid, localPort.toString(), DEVICE_WDA_PORT.toString()],
-      { stdio: ["ignore", "ignore", "ignore"] }
-    );
-    fwd.on("exit", () => this.forwards.delete(udid));
-    this.forwards.set(udid, fwd);
-  }
-
-  private stopForward(udid: string): void {
-    const fwd = this.forwards.get(udid);
-    if (fwd) {
-      try {
-        fwd.kill();
-      } catch {}
-      this.forwards.delete(udid);
+    if (!healthy) {
+      throw new Error(
+        `Failed to start WebDriverAgent on the physical device.\n\nLast output:\n${output().slice(-800)}`,
+      );
     }
+    return instance;
   }
 
-  /** Team ID for signing: explicit env wins, else first codesigning identity. */
+  private publishInstance(deviceId: string, port: number, child: ChildProcess): ManagedInstance {
+    if (!child.pid || child.pid <= 1) {
+      child.kill();
+      throw new Error("WebDriverAgent process did not provide a valid pid");
+    }
+    const instance: ManagedInstance = {
+      pid: child.pid,
+      port,
+      deviceId,
+      child,
+      generation: Symbol(deviceId),
+    };
+    this.instances.set(deviceId, instance);
+    child.once("exit", () => {
+      if (this.instances.get(deviceId) !== instance) return;
+      this.instances.delete(deviceId);
+      this.clients.delete(deviceId);
+      void this.stopForward(deviceId, instance.generation);
+      RESERVED_PORTS.delete(port);
+    });
+    child.once("error", () => {
+      if (this.instances.get(deviceId) !== instance) return;
+      this.instances.delete(deviceId);
+      this.clients.delete(deviceId);
+      void this.stopForward(deviceId, instance.generation);
+      RESERVED_PORTS.delete(port);
+    });
+    return instance;
+  }
+
+  private captureOutput(child: ChildProcess): () => string {
+    let output = "";
+    const append = (chunk: Buffer) => {
+      output += chunk.toString();
+      if (output.length > 50_000) output = output.slice(-50_000);
+    };
+    child.stdout?.on("data", append);
+    child.stderr?.on("data", append);
+    return () => output;
+  }
+
+  private async ensureForward(
+    deviceId: string,
+    port: number,
+    generation: symbol,
+  ): Promise<ManagedForward> {
+    const existing = this.forwards.get(deviceId);
+    if (
+      existing
+      && existing.port === port
+      && existing.child.exitCode === null
+      && existing.child.signalCode === null
+    ) return existing;
+    if (existing) await this.stopForward(deviceId, existing.generation);
+    const child = spawn(GO_IOS_BIN, [
+      "forward", "--udid", deviceId, String(port), String(DEVICE_WDA_PORT),
+    ], { stdio: ["ignore", "ignore", "ignore"] });
+    const forward = { child, generation, port };
+    this.forwards.set(deviceId, forward);
+    const clear = () => {
+      if (this.forwards.get(deviceId) === forward) this.forwards.delete(deviceId);
+    };
+    child.once("exit", clear);
+    child.once("error", clear);
+    return forward;
+  }
+
+  private async stopForward(deviceId: string, generation?: symbol): Promise<void> {
+    const forward = this.forwards.get(deviceId);
+    if (!forward || (generation && forward.generation !== generation)) return;
+    this.forwards.delete(deviceId);
+    await this.terminateChild(forward.child);
+  }
+
   private resolveTeamId(): string | undefined {
     if (process.env.IOS_TEAM_ID) return process.env.IOS_TEAM_ID;
     if (process.env.WDA_TEAM_ID) return process.env.WDA_TEAM_ID;
     try {
-      const out = execSync("security find-identity -v -p codesigning", {
+      const output = execSync("security find-identity -v -p codesigning", {
         encoding: "utf-8",
-        timeout: 5000,
+        timeout: 5_000,
       });
-      const match = out.match(/\(([A-Z0-9]{10})\)/);
-      return match?.[1];
+      return output.match(/\(([A-Z0-9]{10})\)/)?.[1];
     } catch {
       return undefined;
     }
   }
 
   private async checkHealth(port: number): Promise<boolean> {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 2_000);
     try {
-      const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 2000);
-
       const response = await fetch(`http://localhost:${port}/status`, {
         signal: controller.signal,
       });
-
-      clearTimeout(timeout);
-
       return response.ok;
     } catch {
       return false;
+    } finally {
+      clearTimeout(timeout);
     }
   }
 
-  private async findFreePort(): Promise<number> {
-    const { createServer } = await import("net");
-
-    for (let port = 8100; port < 8200; port++) {
-      try {
-        await new Promise<void>((resolve, reject) => {
-          const server = createServer();
-          server.once("error", reject);
-          server.once("listening", () => {
-            server.close(() => resolve());
-          });
-          server.listen(port);
-        });
-        return port;
-      } catch {
-        continue;
-      }
+  private async waitForHealth(
+    port: number,
+    timeoutMs: number,
+    exited: () => boolean,
+  ): Promise<boolean> {
+    const started = Date.now();
+    while (Date.now() - started < timeoutMs) {
+      if (await this.checkHealth(port)) return true;
+      if (exited() || this.disposed) return false;
+      await new Promise((resolve) => setTimeout(resolve, 1_000));
     }
+    return false;
+  }
 
+  private async reservePort(): Promise<number> {
+    for (let port = 8_100; port < 8_200; port++) {
+      if (RESERVED_PORTS.has(port)) continue;
+      const available = await new Promise<boolean>((resolve) => {
+        const server = createServer();
+        server.once("error", () => resolve(false));
+        server.once("listening", () => {
+          RESERVED_PORTS.add(port);
+          server.close(() => resolve(true));
+        });
+        server.listen(port, "127.0.0.1");
+      });
+      if (available) return port;
+    }
     throw new Error("No free ports available in range 8100-8200");
   }
 
-  cleanup(): void {
-    for (const [deviceId, instance] of this.instances) {
-      try {
-        process.kill(instance.pid);
-      } catch {}
-      const client = this.clients.get(deviceId);
-      if (client) {
-        client.deleteSession().catch(() => {});
-      }
+  private async stopDevice(deviceId: string, expected?: ManagedInstance): Promise<void> {
+    const instance = this.instances.get(deviceId);
+    if (expected && instance !== expected) return;
+    this.clients.delete(deviceId);
+    if (!instance) {
+      await this.stopForward(deviceId);
+      return;
     }
-    for (const udid of [...this.forwards.keys()]) {
-      this.stopForward(udid);
-    }
-    this.instances.clear();
+    this.instances.delete(deviceId);
+    await Promise.allSettled([
+      this.stopForward(deviceId, instance.generation),
+      this.terminateChild(instance.child),
+    ]);
+    RESERVED_PORTS.delete(instance.port);
+  }
+
+  private async terminateChild(child: ChildProcess): Promise<void> {
+    if (child.exitCode !== null || child.signalCode !== null) return;
+    const gracefulExit = this.waitForExit(child, 1_000);
+    try { child.kill("SIGTERM"); } catch {}
+    if (await gracefulExit) return;
+    if (child.exitCode !== null || child.signalCode !== null) return;
+    const forcedExit = this.waitForExit(child, 1_000);
+    try { child.kill("SIGKILL"); } catch {}
+    await forcedExit;
+  }
+
+  private waitForExit(child: ChildProcess, timeoutMs: number): Promise<boolean> {
+    if (child.exitCode !== null || child.signalCode !== null) return Promise.resolve(true);
+    return new Promise((resolve) => {
+      let settled = false;
+      const finish = (exited: boolean) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        child.removeListener("exit", onExit);
+        resolve(exited);
+      };
+      const onExit = () => finish(true);
+      const timer = setTimeout(() => finish(false), timeoutMs);
+      child.once("exit", onExit);
+      if (child.exitCode !== null || child.signalCode !== null) finish(true);
+    });
+  }
+
+  async cleanup(): Promise<void> {
+    if (!this.cleanupPromise) this.cleanupPromise = this.runCleanup();
+    return this.cleanupPromise;
+  }
+
+  private async runCleanup(): Promise<void> {
+    this.disposed = true;
+    const launches = [...this.launchPromises.values()];
+    const clients = [...this.clients.values()];
+    const instances = [...this.instances.entries()];
+    const forwards = [...this.forwards];
+    await Promise.allSettled([
+      ...instances.map(([deviceId, instance]) => this.stopDevice(deviceId, instance)),
+      ...forwards.map(([deviceId, forward]) =>
+        this.stopForward(deviceId, forward.generation)
+      ),
+    ]);
+    await Promise.allSettled(launches);
+    await Promise.allSettled(clients.map((client) => client.deleteSession()));
     this.clients.clear();
+    this.launchPromises.clear();
   }
 }

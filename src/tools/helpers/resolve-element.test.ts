@@ -237,6 +237,38 @@ describe("resolveElementCoordinates — Android with text", () => {
   });
 });
 
+describe("resolveElementCoordinates — HarmonyOS with text", () => {
+  it("parses ArkXTest JSON and preserves the requested device", async () => {
+    const hierarchy = JSON.stringify({
+      attributes: {
+        type: "Button",
+        text: "Continue",
+        id: "continue",
+        bounds: "[20,10][220,110]",
+        clickable: true,
+      },
+    });
+    const getUiHierarchyAsync = vi.fn().mockResolvedValue(hierarchy);
+    const setCachedElements = vi.fn();
+    const ctx = makeCtx({ getUiHierarchyAsync, setCachedElements });
+
+    const result = await resolveElementCoordinates(
+      { text: "Continue" },
+      ctx,
+      "harmony",
+      "phone-1",
+    );
+
+    expect(getUiHierarchyAsync).toHaveBeenCalledWith("harmony", "phone-1");
+    expect(result).toMatchObject({
+      x: 120,
+      y: 60,
+      description: "Continue",
+      fromRawArgs: false,
+    });
+  });
+});
+
 // ─────────────────────────────────────────────────────────────
 // Raw x/y coordinates
 // ─────────────────────────────────────────────────────────────

@@ -96,6 +96,8 @@ export interface PluginContext {
   readonly logger: Logger;
   readonly config: Readonly<Record<string, unknown>>;
   readonly eventBus: EventBus;
+  /** Aborted when plugin initialization times out or disposal begins. */
+  readonly signal?: AbortSignal;
   registerTool(def: ToolDefinition): void;
 }
 

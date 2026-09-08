@@ -10,7 +10,7 @@ const { meta, aliases } = createMetaTool({
   extraSchema: {
     platform: {
       type: "string",
-      enum: ["android", "ios", "desktop", "aurora", "browser"],
+      enum: ["android", "ios", "desktop", "aurora", "harmony", "browser"],
       description: "Target platform. If not specified, uses the active target.",
     },
     preset: { type: "string", enum: ["low", "medium", "high"], description: "Quality preset: low (270x480 q40), medium (540x960 q55, default), high (810x1440 q70)" },

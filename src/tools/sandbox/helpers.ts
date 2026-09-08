@@ -91,6 +91,6 @@ export function isRunAsFailure(output: string): boolean {
 // Sandbox-specific platform enum: same values as the shared one, but with a
 // custom description explaining the Android-only behaviour.
 export const androidPlatformEnum = z
-  .enum(["android", "ios", "desktop", "aurora", "browser"])
+  .enum(["android", "ios", "desktop", "aurora", "harmony", "browser"])
   .optional()
   .describe("Target platform. Sandbox access is Android-only.");

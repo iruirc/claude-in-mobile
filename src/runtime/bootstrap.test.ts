@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { bootstrapKernel, bootstrapKernelAsync } from "./bootstrap.js";
 import { DeviceManager } from "../device-manager.js";
 
-const ALL = ["android", "ios", "web", "desktop", "aurora"] as const;
+const ALL = ["android", "ios", "web", "desktop", "aurora", "harmony"] as const;
 
 describe("bootstrapKernel", () => {
   it("is slim by default — only base plugins, no platforms", () => {
@@ -36,6 +36,14 @@ describe("bootstrapKernel", () => {
     expect(ids).toContain("aurora");
   });
 
+  it("async bootstrap loads the packaged HarmonyOS plugin", async () => {
+    const k = await bootstrapKernelAsync({ platforms: ["harmony"] });
+    await k.initAll();
+    expect(k.getPlugin("harmony")?.manifest.id).toBe("harmony");
+    expect(k.toolOwners.get("harmony_launch_ability")).toBe("harmony");
+    await k.disposeAll();
+  });
+
   it("initializes all plugins to active state", async () => {
     const k = bootstrapKernel();
     await k.initAll();
@@ -61,7 +69,7 @@ describe("bootstrapKernel", () => {
       .map((p) => p.manifest.id)
       .sort();
     expect(screenProviders).toEqual(
-      ["android", "aurora", "desktop", "ios", "web"].sort()
+      ["android", "aurora", "desktop", "harmony", "ios", "web"].sort()
     );
     const terminalProviders = k.resolver
       .resolve({ capabilities: ["terminal"] })
@@ -83,6 +91,50 @@ describe("bootstrapKernel", () => {
     const android = k.getPlugin("android");
     expect(android?.manifest.id).toBe("android");
     expect(k.getPlugin("nope")).toBeUndefined();
+  });
+
+  it("keeps the first tool owner and rejects a conflicting plugin atomically", async () => {
+    const tool = (name: string) => ({
+      name,
+      description: "",
+      inputSchema: {},
+      handler: async () => null,
+    });
+    const k = bootstrapKernel({
+      builtins: [
+        () => ({
+          manifest: {
+            id: "owner-a",
+            name: "A",
+            version: "1.0.0",
+            apiVersion: "1",
+            capabilities: ["meta-tools"],
+          },
+          init: (ctx) => { ctx.registerTool(tool("shared")); },
+        }),
+        () => ({
+          manifest: {
+            id: "owner-b",
+            name: "B",
+            version: "1.0.0",
+            apiVersion: "1",
+            capabilities: ["meta-tools"],
+          },
+          init: (ctx) => {
+            ctx.registerTool(tool("only-b"));
+            ctx.registerTool(tool("shared"));
+          },
+        }),
+      ],
+    });
+
+    await k.initAll();
+
+    expect(k.registry.get("owner-a")?.state).toBe("active");
+    expect(k.registry.get("owner-b")?.state).toBe("failed");
+    expect(k.tools.has("shared")).toBe(true);
+    expect(k.toolOwners.get("shared")).toBe("owner-a");
+    expect(k.tools.has("only-b")).toBe(false);
   });
 });
 

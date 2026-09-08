@@ -3,6 +3,7 @@ import { defineTool, z } from "./define-tool.js";
 import { platformEnum, deviceIdField } from "./common-schema.js";
 import { truncateOutput } from "../utils/truncate.js";
 import {
+  validatePath,
   validateShellCommand,
   validateUrl,
   sanitizeForShell,
@@ -13,6 +14,7 @@ import { textResult } from "../utils/tool-result.js";
 import { sleep } from "../utils/sleep.js";
 import { AM, PIDOF } from "../adb/commands.js";
 import { dispatchByPlatform } from "./helpers/dispatch.js";
+import { hasShell, hasUrlOpening } from "../adapters/platform-adapter.js";
 
 const commonFields = {
   platform: platformEnum,
@@ -78,6 +80,50 @@ export const systemTools: ToolDefinition[] = [
   }),
 
   defineTool({
+    name: "system_file_push",
+    description: "Upload a local file to a device with file transfer support",
+    schema: z.object({
+      localPath: z.string().describe("Local file path"),
+      remotePath: z.string().describe("Remote destination path"),
+      ...commonFields,
+    }),
+    handler: async (args, ctx) => {
+      const { deviceId, platform } = parseCommonArgs(args as Record<string, unknown>, ctx);
+      validatePath(args.localPath, "localPath");
+      validatePath(args.remotePath, "remotePath");
+      const result = await ctx.deviceManager.pushFile(
+        args.localPath,
+        args.remotePath,
+        platform,
+        deviceId,
+      );
+      return textResult(result);
+    },
+  }),
+
+  defineTool({
+    name: "system_file_pull",
+    description: "Download a file from a device with file transfer support",
+    schema: z.object({
+      remotePath: z.string().describe("Path to the remote file"),
+      localPath: z.string().optional().describe("Optional local destination path"),
+      ...commonFields,
+    }),
+    handler: async (args, ctx) => {
+      const { deviceId, platform } = parseCommonArgs(args as Record<string, unknown>, ctx);
+      validatePath(args.remotePath, "remotePath");
+      if (args.localPath) validatePath(args.localPath, "localPath");
+      const result = await ctx.deviceManager.pullFile(
+        args.remotePath,
+        args.localPath,
+        platform,
+        deviceId,
+      );
+      return textResult(result);
+    },
+  }),
+
+  defineTool({
     name: "system_open_url",
     description: "Open URL in device browser",
     schema: z.object({
@@ -98,8 +144,16 @@ export const systemTools: ToolDefinition[] = [
           ctx.deviceManager.getIosClient(deviceId).openUrl(args.url);
           return textResult(`Opened URL: ${args.url}`);
         },
+        harmony: async () => {
+          const adapter = ctx.deviceManager.getAdapter("harmony", deviceId);
+          if (!hasUrlOpening(adapter)) {
+            return textResult("open_url is not supported for harmony platform.");
+          }
+          await adapter.openUrl(args.url, deviceId);
+          return textResult(`Opened URL: ${args.url}`);
+        },
         unsupported: (p) =>
-          textResult(`open_url is not supported for ${p} platform. Supported: android, ios.`),
+          textResult(`open_url is not supported for ${p} platform. Supported: android, ios, harmony.`),
       });
     },
   }),
@@ -113,9 +167,9 @@ export const systemTools: ToolDefinition[] = [
         .string()
         .optional()
         .describe(
-          "Log level filter. Android: V/D/I/W/E/F (Verbose/Debug/Info/Warning/Error/Fatal). iOS: debug/info/default/error/fault",
+          "Log level filter. Android: V/D/I/W/E/F. iOS: debug/info/default/error/fault. HarmonyOS: HiLog level text.",
         ),
-      tag: z.string().optional().describe("Filter by tag (Android only)"),
+      tag: z.string().optional().describe("Filter by tag (Android/HarmonyOS)"),
       lines: z
         .number()
         .default(100)
@@ -139,7 +193,7 @@ export const systemTools: ToolDefinition[] = [
   defineTool({
     name: "system_wait_log",
     description:
-      "Wait until a regex pattern appears in device logs. Polls the log buffer at regular intervals; returns the matching line(s) plus optional context, or times out. Use after an action to wait for a known marker (e.g., 'NavigationCompleted', a custom Debug.WriteLine tag) instead of fixed system_wait + system_logs polling. Android only.",
+      "Wait until a regex pattern appears in device logs. Polls the log buffer at regular intervals; returns the matching line(s) plus optional context, or times out. Use after an action to wait for a known marker instead of fixed system_wait + system_logs polling. Available on platforms with logs support.",
     schema: z.object({
       pattern: z
         .string()
@@ -163,8 +217,8 @@ export const systemTools: ToolDefinition[] = [
         .number()
         .default(0)
         .describe("Extra lines after each match to return for context (default: 0, max: 20)"),
-      level: z.string().optional().describe("Pre-filter by log level. Android: V/D/I/W/E/F"),
-      tag: z.string().optional().describe("Pre-filter by tag (Android only)"),
+      level: z.string().optional().describe("Pre-filter by log level"),
+      tag: z.string().optional().describe("Pre-filter by tag (Android/HarmonyOS)"),
       package: z.string().optional().describe("Pre-filter by package"),
       clearFirst: z
         .boolean()
@@ -176,8 +230,9 @@ export const systemTools: ToolDefinition[] = [
     }),
     handler: async (args, ctx) => {
       const { deviceId, platform } = parseCommonArgs(args as Record<string, unknown>, ctx);
-      if (platform !== "android") {
-        return textResult("system_wait_log is only available for Android.");
+      const adapter = ctx.deviceManager.getAdapter(platform, deviceId);
+      if (!hasShell(adapter)) {
+        return textResult(`system_wait_log is not supported for ${platform}.`);
       }
 
       let regex: RegExp;
@@ -248,8 +303,8 @@ export const systemTools: ToolDefinition[] = [
 
   defineTool({
     name: "system_clear_logs",
-    description: "Clear device log buffer (Android only)",
-    schema: z.object({ deviceId: deviceIdField }),
+    description: "Clear the device log buffer",
+    schema: z.object(commonFields),
     handler: async (args, ctx) => {
       const { deviceId, platform } = parseCommonArgs(args as Record<string, unknown>, ctx);
       const result = ctx.deviceManager.clearLogs(platform, deviceId);

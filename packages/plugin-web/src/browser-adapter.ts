@@ -11,6 +11,7 @@ import type { CompressOptions } from "mcp-devices/utils/image";
 import { BrowserClient } from "./browser/client.js";
 import { SessionManager } from "./browser/session-manager.js";
 import { compressScreenshot } from "mcp-devices/utils/image";
+import { rm } from "fs/promises";
 import type {
   BrowserOpenOptions,
   BrowserNavigateOptions,
@@ -34,10 +35,16 @@ export class BrowserAdapter implements CorePlatformAdapter {
 
   readonly sessionManager: SessionManager;
   readonly client: BrowserClient;
+  private readonly sessionOperations = new Map<string, Promise<void>>();
+  private disposed = false;
+  private cleanupPromise?: Promise<void>;
 
-  constructor() {
-    this.sessionManager = new SessionManager();
-    this.client = new BrowserClient(this.sessionManager);
+  constructor(
+    sessionManager = new SessionManager(),
+    client?: BrowserClient,
+  ) {
+    this.sessionManager = sessionManager;
+    this.client = client ?? new BrowserClient(sessionManager);
   }
 
   // -- Device management --
@@ -143,24 +150,40 @@ export class BrowserAdapter implements CorePlatformAdapter {
 
   async open(options: BrowserOpenOptions): Promise<string> {
     const sessionName = options.session ?? DEFAULT_SESSION;
-    // Close existing session with same name if any
-    const existing = this.sessionManager.getSession(sessionName);
-    if (existing) {
-      await this.client.close(existing);
-    }
-    const session = await this.client.launch(options);
-    const snapshot = await this.client.getSnapshot(session);
-    return `Opened ${options.url} in session "${sessionName}"\n\n${snapshot}`;
+    return this.withSessionOperation(sessionName, async () => {
+      if (this.disposed) throw new Error("Browser adapter is disposed");
+      const existing = this.sessionManager.getSession(sessionName);
+      if (existing) await this.client.close(existing);
+      const session = await this.client.launch(options);
+      try {
+        const snapshot = await this.client.getSnapshot(session);
+        return `Opened ${options.url} in session "${sessionName}"\n\n${snapshot}`;
+      } catch (error) {
+        await this.client.close(session);
+        throw error;
+      }
+    });
   }
 
   async closeSession(session?: string): Promise<void> {
     if (!session) {
-      await this.client.closeAll();
+      await Promise.all(
+        this.sessionManager.listSessions().map((name) =>
+          this.withSessionOperation(name, async () => {
+            const active = this.sessionManager.getSession(name);
+            if (active) await this.client.close(active);
+          })
+        ),
+      );
       return;
     }
-    const s = this.sessionManager.getSession(session);
-    if (!s) throw new BrowserSessionNotFoundError(session, this.sessionManager.listSessions());
-    await this.client.close(s);
+    await this.withSessionOperation(session, async () => {
+      const active = this.sessionManager.getSession(session);
+      if (!active) {
+        throw new BrowserSessionNotFoundError(session, this.sessionManager.listSessions());
+      }
+      await this.client.close(active);
+    });
   }
 
   async navigate(options: BrowserNavigateOptions): Promise<string> {
@@ -240,14 +263,20 @@ export class BrowserAdapter implements CorePlatformAdapter {
   }
 
   async clearSessionData(sessionName: string): Promise<void> {
-    const session = this.sessionManager.getSession(sessionName);
-    if (session) {
-      await this.client.close(session);
-    }
-    // Remove profile dir
-    const { rm } = await import("fs/promises");
-    const profileDir = this.sessionManager.getProfileDir(sessionName);
-    await rm(profileDir, { recursive: true, force: true });
+    await this.withSessionOperation(sessionName, async () => {
+      const session = this.sessionManager.getSession(sessionName);
+      if (session) await this.client.close(session);
+      const token = this.sessionManager.acquireLock(sessionName);
+      try {
+        this.sessionManager.cleanupOrphanChrome(sessionName);
+        await rm(this.sessionManager.getProfileDir(sessionName), {
+          recursive: true,
+          force: true,
+        });
+      } finally {
+        this.sessionManager.releaseLock(sessionName, token);
+      }
+    });
   }
 
   listSessions(): string[] {
@@ -255,6 +284,34 @@ export class BrowserAdapter implements CorePlatformAdapter {
   }
 
   async cleanup(): Promise<void> {
-    await this.client.closeAll();
+    if (!this.cleanupPromise) {
+      this.disposed = true;
+      this.cleanupPromise = (async () => {
+        await Promise.allSettled([...this.sessionOperations.values()]);
+        await this.closeSession();
+      })();
+    }
+    return this.cleanupPromise;
+  }
+
+  async dispose(): Promise<void> {
+    await this.cleanup();
+  }
+
+  private async withSessionOperation<T>(
+    sessionName: string,
+    operation: () => Promise<T>,
+  ): Promise<T> {
+    const previous = this.sessionOperations.get(sessionName) ?? Promise.resolve();
+    const current = previous.then(operation, operation);
+    const tail = current.then(() => undefined, () => undefined);
+    this.sessionOperations.set(sessionName, tail);
+    try {
+      return await current;
+    } finally {
+      if (this.sessionOperations.get(sessionName) === tail) {
+        this.sessionOperations.delete(sessionName);
+      }
+    }
   }
 }

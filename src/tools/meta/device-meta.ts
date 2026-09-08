@@ -55,12 +55,12 @@ export const deviceMeta: ToolDefinition = {
         deviceId: { type: "string", description: "Device ID (for set)" },
         platform: {
           type: "string",
-          enum: ["android", "ios", "desktop", "aurora", "browser"],
+          enum: ["android", "ios", "desktop", "aurora", "harmony", "browser"],
           description: "Filter by platform or target platform",
         },
         target: {
           type: "string",
-          enum: ["android", "ios", "desktop", "aurora", "browser"],
+          enum: ["android", "ios", "desktop", "aurora", "harmony", "browser"],
           description: "Target platform to switch to (for set_target)",
         },
         module: {

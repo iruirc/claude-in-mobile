@@ -31,6 +31,10 @@ export class WebPlugin implements SourcePlugin {
   }
 
   init(_ctx: PluginContext): void {}
+
+  async dispose(): Promise<void> {
+    await this.adapter.dispose();
+  }
 }
 
 export function createWebPlugin(): SourcePlugin {

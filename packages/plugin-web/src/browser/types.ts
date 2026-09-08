@@ -13,6 +13,7 @@ export interface BrowserSession {
   cdp: CDPClientInterface;
   port: number;
   profileDir: string;
+  lockToken: string;
   refMap: Map<string, RefEntry>;
   lastRefCounter: number;
   url: string;

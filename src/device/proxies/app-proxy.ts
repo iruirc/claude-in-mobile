@@ -1,12 +1,11 @@
 /**
- * AppProxy — app management ops (launch/stop/install).
+ * AppProxy — app lifecycle and inventory operations.
  *
- * Extracted from DeviceManager (D9.1b). Guards via hasAppManagement before
- * delegating; throws the same messages DeviceManager used to throw so
- * existing tool errors remain byte-identical.
+ * Extracted from DeviceManager (D9.1b). Guards the segregated lifecycle
+ * and inventory capabilities before delegating.
  */
 
-import { hasAppManagement } from "../../adapters/platform-adapter.js";
+import { hasAppInventory, hasAppManagement } from "../../adapters/platform-adapter.js";
 import type { Platform } from "../../platform-types.js";
 import type { AdapterResolver } from "./input-proxy.js";
 
@@ -39,5 +38,25 @@ export class AppProxy {
       throw new Error(`App installation is not supported for ${adapter.platform}.`);
     }
     return adapter.installApp(path, deviceId);
+  }
+
+  async listApps(platform?: Platform, deviceId?: string): Promise<string[]> {
+    const adapter = this.resolve(platform, deviceId);
+    if (!hasAppInventory(adapter)) {
+      throw new Error(`App inventory is not supported for ${adapter.platform}.`);
+    }
+    return adapter.listApps(deviceId);
+  }
+
+  async uninstallApp(
+    packageOrBundleId: string,
+    platform?: Platform,
+    deviceId?: string,
+  ): Promise<string> {
+    const adapter = this.resolve(platform, deviceId);
+    if (!hasAppInventory(adapter)) {
+      throw new Error(`App uninstall is not supported for ${adapter.platform}.`);
+    }
+    return adapter.uninstallApp(packageOrBundleId, deviceId);
   }
 }

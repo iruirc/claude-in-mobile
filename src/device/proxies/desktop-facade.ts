@@ -15,7 +15,6 @@ import type {
   DesktopAdapterLike,
   DesktopClientLike,
   RawLaunchOptionsLike,
-  WebViewInspectorLike,
 } from "../../adapters/contracts.js";
 import type { Platform } from "../../platform-types.js";
 
@@ -85,29 +84,4 @@ export class DesktopFacade {
     return adapter as unknown as BrowserAdapterLike;
   }
 
-  /**
-   * Best-effort cleanup of long-lived resources owned by desktop, ios,
-   * browser adapters + an optional WebViewInspector. Mirrors the legacy
-   * try/catch swallow semantics so a single broken adapter cannot
-   * prevent the others from being torn down.
-   */
-  async cleanup(webViewInspector?: WebViewInspectorLike): Promise<void> {
-    const desktop = this.adapters.get("desktop") as
-      | { stop?: () => Promise<void> }
-      | undefined;
-    if (desktop && typeof desktop.stop === "function") {
-      try { await desktop.stop(); } catch {}
-    }
-    const ios = this.adapters.get("ios") as { getClient?: () => { cleanup?: () => void } } | undefined;
-    if (ios && typeof ios.getClient === "function") {
-      try { ios.getClient().cleanup?.(); } catch {}
-    }
-    try { webViewInspector?.cleanup(); } catch {}
-    const browser = this.adapters.get("browser") as
-      | { cleanup?: () => Promise<void> }
-      | undefined;
-    if (browser && typeof browser.cleanup === "function") {
-      try { await browser.cleanup(); } catch {}
-    }
-  }
 }

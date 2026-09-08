@@ -9,13 +9,19 @@
  * adapters from the kernel via a static factory (see DeviceManager.fromKernel).
  */
 
-import type { Logger, SourcePlugin, ToolDefinition } from "@mcp-devices/plugin-api";
+import {
+  PluginContractError,
+  type Logger,
+  type SourcePlugin,
+  type ToolDefinition,
+} from "@mcp-devices/plugin-api";
 
 import { InMemoryEventBus } from "../kernel/eventbus.js";
 import { InMemoryRegistry, type PluginRegistry } from "../kernel/registry.js";
 import { LifecycleOrchestrator } from "../kernel/lifecycle.js";
 import { CapabilityResolver } from "../kernel/resolver.js";
 import { ExternalPluginLoader } from "../kernel/external-loader.js";
+import { assertToolsAvailable } from "../tools/registry.js";
 
 import { createBuiltinToolsPlugin } from "../plugins/builtin-tools/index.js";
 import { createReplPlugin } from "../plugins/repl/index.js";
@@ -28,6 +34,7 @@ export interface KernelHandle {
   readonly resolver: CapabilityResolver;
   readonly lifecycle: LifecycleOrchestrator;
   readonly tools: ReadonlyMap<string, ToolDefinition>;
+  readonly toolOwners: ReadonlyMap<string, string>;
   initAll(): Promise<void>;
   disposeAll(): Promise<void>;
   getPlugin<T extends SourcePlugin = SourcePlugin>(id: string): T | undefined;
@@ -88,6 +95,7 @@ const IN_BASE_FACTORIES: Partial<Record<PlatformId, () => SourcePlugin>> = {
  */
 const PACKAGED_PLATFORMS: Partial<Record<PlatformId, string>> = {
   aurora: "@mcp-devices/plugin-aurora",
+  harmony: "@mcp-devices/plugin-harmony",
   web: "@mcp-devices/plugin-web",
   desktop: "@mcp-devices/plugin-desktop",
   android: "@mcp-devices/plugin-android",
@@ -253,14 +261,47 @@ export function bootstrapKernel(options: BootstrapOptions = {}): KernelHandle {
   const eventBus = new InMemoryEventBus();
   const logger = options.logger ?? consoleLogger();
   const tools = new Map<string, ToolDefinition>();
+  const toolOwners = new Map<string, string>();
 
   const lifecycle = new LifecycleOrchestrator({
     registry,
     eventBus,
     logger,
     configFor: options.configFor ?? (() => ({})),
-    onToolRegistered: (_pluginId, def) => {
-      tools.set(def.name, def);
+    registerTools: (pluginId, defs) => {
+      try {
+        assertToolsAvailable(defs.map((def) => def.name), pluginId);
+      } catch (error) {
+        throw new PluginContractError(
+          error instanceof Error ? error.message : String(error),
+          pluginId,
+        );
+      }
+      const staged = new Set<string>();
+      for (const def of defs) {
+        const name = def.name.trim();
+        if (!name || name !== def.name) {
+          throw new PluginContractError(
+            "tool name must be non-empty and have no surrounding whitespace",
+            pluginId,
+          );
+        }
+        if (staged.has(name)) {
+          throw new PluginContractError(`tool '${name}' is registered twice`, pluginId);
+        }
+        staged.add(name);
+        const owner = toolOwners.get(name);
+        if (owner) {
+          throw new PluginContractError(
+            `tool '${name}' conflicts with owner '${owner}'`,
+            pluginId,
+          );
+        }
+      }
+      for (const def of defs) {
+        tools.set(def.name, def);
+        toolOwners.set(def.name, pluginId);
+      }
     },
   });
 
@@ -276,12 +317,14 @@ export function bootstrapKernel(options: BootstrapOptions = {}): KernelHandle {
     resolver,
     lifecycle,
     tools,
+    toolOwners,
     async initAll() {
       await lifecycle.initAll();
       resolver.invalidate();
     },
     async disposeAll() {
       await lifecycle.disposeAll();
+      resolver.invalidate();
     },
     getPlugin<T extends SourcePlugin = SourcePlugin>(id: string): T | undefined {
       return registry.get(id)?.plugin as T | undefined;

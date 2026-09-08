@@ -19,8 +19,9 @@ function makeMockContext(overrides?: Partial<ToolContext>): ToolContext {
       launchApp: vi.fn(() => "launched"),
       stopApp: vi.fn(),
       installApp: vi.fn(() => "installed"),
+      uninstallApp: vi.fn(() => "uninstalled"),
+      listApps: vi.fn(() => []),
       getCurrentPlatform: vi.fn(() => "android"),
-      getAuroraClient: vi.fn(() => ({ listPackages: vi.fn(() => []) })),
     } as any,
     getCachedElements: vi.fn(() => []),
     setCachedElements: vi.fn(),
@@ -31,7 +32,7 @@ function makeMockContext(overrides?: Partial<ToolContext>): ToolContext {
     getElementsForPlatform: vi.fn(async () => []),
     iosTreeToUiElements: vi.fn(() => []),
     formatIOSUITree: vi.fn(() => ""),
-    platformParam: { type: "string", enum: ["android", "ios", "desktop", "aurora", "browser"], description: "" },
+    platformParam: { type: "string", enum: ["android", "ios", "desktop", "aurora", "harmony", "browser"], description: "" },
     handleTool: vi.fn(async () => ({ text: "ok" })),
     ...overrides,
   };
@@ -173,5 +174,45 @@ describe("app_install", () => {
     const ctx = makeMockContext();
     const result = await handler({ path: "/sdcard/downloads/app.apk" }, ctx);
     expect((result as { text: string }).text).toBe("installed");
+  });
+});
+
+describe("app inventory", () => {
+  it("lists HarmonyOS bundles through the generic app surface", async () => {
+    const listApps = vi.fn(() => ["com.example.alpha", "com.example.beta"]);
+    const ctx = makeMockContext({
+      deviceManager: {
+        listApps,
+        getCurrentPlatform: vi.fn(() => "harmony"),
+      } as any,
+    });
+
+    const result = await findHandler("app_list")({
+      platform: "harmony",
+      deviceId: "phone",
+    }, ctx);
+
+    expect((result as { text: string }).text).toBe(
+      "Installed apps (2):\ncom.example.alpha\ncom.example.beta",
+    );
+    expect(listApps).toHaveBeenCalledWith("harmony", "phone");
+  });
+
+  it("uninstalls an Aurora package through the generic app surface", async () => {
+    const uninstallApp = vi.fn(() => "Uninstalled ru.example.App");
+    const ctx = makeMockContext({
+      deviceManager: {
+        uninstallApp,
+        getCurrentPlatform: vi.fn(() => "aurora"),
+      } as any,
+    });
+
+    const result = await findHandler("app_uninstall")({
+      package: "ru.example.App",
+      platform: "aurora",
+    }, ctx);
+
+    expect((result as { text: string }).text).toBe("Uninstalled ru.example.App");
+    expect(uninstallApp).toHaveBeenCalledWith("ru.example.App", "aurora", undefined);
   });
 });

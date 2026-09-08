@@ -6,7 +6,7 @@ export interface CommonArgs {
   platform: Platform;
 }
 
-const VALID: ReadonlyArray<Platform> = ["android", "ios", "desktop", "aurora", "browser"];
+const VALID: ReadonlyArray<Platform> = ["android", "ios", "desktop", "aurora", "harmony", "browser"];
 
 const isPlatform = (v: unknown): v is Platform =>
   typeof v === "string" && (VALID as readonly string[]).includes(v);

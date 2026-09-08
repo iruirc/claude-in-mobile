@@ -10,9 +10,11 @@
  * default empty is what makes "base package, deliver platforms on demand" work.
  */
 
-import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
-import { homedir } from "node:os";
-import { dirname, join } from "node:path";
+import {
+  readRuntimeConfig,
+  runtimeConfigPath,
+  updateRuntimeConfig,
+} from "./config-file.js";
 
 export const ALL_PLATFORMS = [
   "android",
@@ -20,12 +22,13 @@ export const ALL_PLATFORMS = [
   "web",
   "desktop",
   "aurora",
+  "harmony",
 ] as const;
 
 export type PlatformId = (typeof ALL_PLATFORMS)[number];
 
 export function configPath(): string {
-  return join(homedir(), ".mcp-devices", "config.json");
+  return runtimeConfigPath();
 }
 
 function isPlatformId(s: string): s is PlatformId {
@@ -46,19 +49,12 @@ export function parsePlatformList(raw: string): PlatformId[] {
 }
 
 function readConfigPlatforms(path = configPath()): PlatformId[] | undefined {
-  try {
-    const json = JSON.parse(readFileSync(path, "utf-8")) as {
-      platforms?: unknown;
-    };
-    if (Array.isArray(json.platforms)) {
-      return json.platforms.filter(
-        (s): s is PlatformId => typeof s === "string" && isPlatformId(s)
-      );
-    }
-  } catch {
-    // missing/invalid config → treated as "no preference"
-  }
-  return undefined;
+  const platforms = readRuntimeConfig(path).platforms;
+  if (!Array.isArray(platforms)) return undefined;
+  return platforms.filter(
+    (value): value is PlatformId =>
+      typeof value === "string" && isPlatformId(value),
+  );
 }
 
 /** Resolve the enabled platform set per the documented precedence. */
@@ -76,6 +72,5 @@ export function writeEnabledPlatforms(
   path = configPath()
 ): void {
   const deduped = [...new Set(platforms)].filter(isPlatformId);
-  mkdirSync(dirname(path), { recursive: true });
-  writeFileSync(path, JSON.stringify({ platforms: deduped }, null, 2) + "\n");
+  updateRuntimeConfig({ platforms: deduped }, path);
 }

@@ -27,6 +27,8 @@ export class IosAdapter
   readonly platform = "ios" as const;
   private client: IosClient;
   private _selectedDeviceId: string | undefined;
+  private readonly scopedClients = new Map<string, IosClient>();
+  private disposePromise?: Promise<void>;
 
   constructor(client?: IosClient) {
     this.client = client ?? new IosClient();
@@ -41,7 +43,21 @@ export class IosAdapter
   /** Return a client targeting deviceId without mutating global state. */
   private clientFor(deviceId?: string): IosClient {
     if (!deviceId || deviceId === this._selectedDeviceId) return this.client;
-    return new IosClient(deviceId);
+    let scoped = this.scopedClients.get(deviceId);
+    if (!scoped) {
+      scoped = this.client.forDevice(deviceId);
+      this.scopedClients.set(deviceId, scoped);
+    }
+    return scoped;
+  }
+
+  async dispose(): Promise<void> {
+    if (!this.disposePromise) {
+      this.disposePromise = this.client.cleanup().finally(() => {
+        this.scopedClients.clear();
+      });
+    }
+    return this.disposePromise;
   }
 
   // ============ Device management ============

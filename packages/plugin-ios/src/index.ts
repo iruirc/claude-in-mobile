@@ -40,6 +40,10 @@ export class IosPlugin implements SourcePlugin {
   }
 
   init(_ctx: PluginContext): void {}
+
+  async dispose(): Promise<void> {
+    await this.adapter.dispose();
+  }
 }
 
 export function createIosPlugin(): SourcePlugin {

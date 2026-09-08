@@ -108,9 +108,9 @@ export class BuiltinToolsPlugin implements SourcePlugin {
 
     // Legacy registry — `PluginContext.registerTool` would lose the
     // ToolContext-aware handler signature. See header comment.
-    registerTools(visibleTools);
+    registerTools(visibleTools, this.manifest.id);
     if (hiddenToolDefs.length > 0) {
-      registerToolsHidden(hiddenToolDefs);
+      registerToolsHidden(hiddenToolDefs, this.manifest.id);
     }
 
     registerAllModuleMetadata(MODULE_METADATA);

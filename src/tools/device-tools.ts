@@ -3,7 +3,7 @@ import type { Platform } from "../device-manager.js";
 import { defineTool, z } from "./define-tool.js";
 import { textResult } from "../utils/tool-result.js";
 
-const platformEnum = z.enum(["android", "ios", "desktop", "aurora", "browser"]);
+const platformEnum = z.enum(["android", "ios", "desktop", "aurora", "harmony", "browser"]);
 
 export const deviceTools: ToolDefinition[] = [
   defineTool({
@@ -12,14 +12,14 @@ export const deviceTools: ToolDefinition[] = [
     schema: z.object({
       platform: platformEnum
         .optional()
-        .describe("Filter by platform (android/ios). If not specified, shows all."),
+        .describe("Filter by platform. If not specified, shows all."),
     }),
     handler: async (args, ctx) => {
       const platform = args.platform as Platform | undefined;
       const devices = ctx.deviceManager.getDevices(platform);
       if (devices.length === 0) {
         return textResult(
-          "No devices connected. Make sure ADB/Xcode is running and a device/emulator/simulator is connected.",
+          "No devices connected. Make sure the platform toolchain (ADB, Xcode, HDC, or companion) is running and a device/emulator/simulator is connected.",
         );
       }
 
@@ -30,6 +30,7 @@ export const deviceTools: ToolDefinition[] = [
       const ios = devices.filter((d) => d.platform === "ios");
       const desktop = devices.filter((d) => d.platform === "desktop");
       const aurora = devices.filter((d) => d.platform === "aurora");
+      const harmony = devices.filter((d) => d.platform === "harmony");
       const browser = devices.filter((d) => d.platform === "browser");
 
       let result = "Connected devices:\n";
@@ -71,6 +72,16 @@ export const deviceTools: ToolDefinition[] = [
         }
       }
 
+      if (harmony.length > 0) {
+        result += "\nHarmonyOS:\n";
+        for (const d of harmony) {
+          const active =
+            activeDevice?.id === d.id && activeTarget === "harmony" ? " [ACTIVE]" : "";
+          const type = d.isSimulator ? "emulator" : "physical";
+          result += `  • ${d.id} - ${d.name} (${type}, ${d.state})${active}\n`;
+        }
+      }
+
       if (browser.length > 0) {
         result += "\nBrowser:\n";
         for (const d of browser) {
@@ -101,7 +112,7 @@ export const deviceTools: ToolDefinition[] = [
 
   defineTool({
     name: "device_set_target",
-    description: "Switch active platform (android/ios/desktop/aurora/browser)",
+    description: "Switch active platform (android/ios/desktop/aurora/harmony/browser)",
     schema: z.object({
       target: platformEnum.describe("Target platform to switch to"),
     }),

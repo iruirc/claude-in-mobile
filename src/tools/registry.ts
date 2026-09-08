@@ -27,12 +27,16 @@ export function freezeRegistry(): void {
   reg().freezeRegistry();
 }
 
-export function registerTools(defs: ToolDefinition[]): void {
-  reg().registerTools(defs);
+export function assertToolsAvailable(names: readonly string[], owner: string): void {
+  reg().assertToolsAvailable(names, owner);
 }
 
-export function registerToolsHidden(defs: ToolDefinition[]): void {
-  reg().registerToolsHidden(defs);
+export function registerTools(defs: ToolDefinition[], owner?: string): void {
+  reg().registerTools(defs, owner);
+}
+
+export function registerToolsHidden(defs: ToolDefinition[], owner?: string): void {
+  reg().registerToolsHidden(defs, owner);
 }
 
 export function unhideTools(names: string[]): void {

@@ -71,7 +71,9 @@ export function runPluginContract(factory: PluginFactory): void {
         eventBus: bus,
         logger: silentLogger(),
         configFor: () => ({}),
-        onToolRegistered: (_id, def: ToolDefinition) => toolNames.add(def.name),
+        registerTools: (_id, defs: readonly ToolDefinition[]) => {
+          for (const def of defs) toolNames.add(def.name);
+        },
       });
       r.register(factory());
       await lc.initAll();
@@ -92,7 +94,7 @@ export function runPluginContract(factory: PluginFactory): void {
         eventBus: bus,
         logger: silentLogger(),
         configFor: () => ({}),
-        onToolRegistered: () => {},
+        registerTools: () => {},
       });
       r.register(factory());
       await lc.initAll();

@@ -4,7 +4,11 @@ import { readFileSync } from "fs";
 import { fileURLToPath } from "url";
 import { dirname, join } from "path";
 
-import { registerTools, freezeRegistry } from "./tools/registry.js";
+import {
+  assertToolsAvailable,
+  freezeRegistry,
+  registerTools,
+} from "./tools/registry.js";
 import type { ToolDefinition } from "./tools/registry.js";
 import { createToolContext, MAX_RECURSION_DEPTH } from "./tools/context.js";
 import { MobileError } from "./errors.js";
@@ -20,6 +24,7 @@ import { resolveToolCall } from "./tools/registry.js";
 import { buildInstructions } from "./runtime/mcp-instructions.js";
 import { runCliIfRequested } from "./runtime/cli.js";
 import { runPlatformCommand } from "./runtime/platform-cli.js";
+import { runToolPluginCommand } from "./runtime/tool-plugin-cli.js";
 import { createMcpServer } from "./runtime/mcp-server.js";
 
 // Read version from package.json — single source of truth
@@ -85,10 +90,9 @@ async function handleTool(name: string, args: Record<string, unknown>, depth: nu
 const turboEnabled = process.env.MOBILE_TURBO === "true";
 if (turboEnabled) console.error("[turbo] MOBILE_TURBO=true — flow(run) turbo mode enabled by default");
 
-// Shared context (wired after handleTool is defined). Placeholder until the
-// kernel is bootstrapped below — reassigned with the kernel-backed
-// DeviceManager so tools route through the enabled platform plugins.
-let ctx = createToolContext(handleTool, { turboDefault: turboEnabled });
+// Assigned after kernel initialization. No default adapter graph is created:
+// the kernel plugins are the sole owners of platform resources.
+let ctx: ReturnType<typeof createToolContext>;
 
 // Resolve profile from MOBILE_PROFILE env for use in MCP instructions only —
 // the actual registration of meta tools / aliases / module metadata happens
@@ -98,8 +102,8 @@ const activeProfile: MobileProfile = VALID_PROFILES.includes(rawProfile as Mobil
   ? (rawProfile as MobileProfile)
   : "core";
 
-// Platform management subcommands (install / uninstall / doctor / platforms)
-// short-circuit before any kernel/server boot — they just mutate config.
+// Configuration commands short-circuit before any kernel/server boot.
+runToolPluginCommand(process.argv);
 runPlatformCommand(process.argv);
 
 // Kernel bootstrap — see runtime/bootstrap.ts. `MCP_DEVICES_EXTERNAL_PLUGINS=1`
@@ -122,6 +126,7 @@ ctx = createToolContext(handleTool, {
 });
 
 const kernelToolDefs: ToolDefinition[] = [];
+const kernelToolsByOwner = new Map<string, ToolDefinition[]>();
 for (const def of kernel.tools.values()) {
   const pluginDef: PluginToolDefinition = def;
   const mcpTool: Tool = {
@@ -129,13 +134,21 @@ for (const def of kernel.tools.values()) {
     description: pluginDef.description,
     inputSchema: pluginDef.inputSchema as Tool["inputSchema"],
   };
-  kernelToolDefs.push({
+  const legacyDef: ToolDefinition = {
     tool: mcpTool,
     handler: async (args) => pluginDef.handler(args),
-  });
+  };
+  kernelToolDefs.push(legacyDef);
+  const owner = kernel.toolOwners.get(pluginDef.name) ?? "kernel";
+  const owned = kernelToolsByOwner.get(owner) ?? [];
+  owned.push(legacyDef);
+  kernelToolsByOwner.set(owner, owned);
+}
+for (const [owner, defs] of kernelToolsByOwner) {
+  assertToolsAvailable(defs.map((def) => def.tool.name), owner);
+  registerTools(defs, owner);
 }
 if (kernelToolDefs.length > 0) {
-  registerTools(kernelToolDefs);
   console.error(`[kernel] registered ${kernelToolDefs.length} plugin tools: ${kernelToolDefs.map((d) => d.tool.name).join(", ")}`);
 }
 
@@ -161,11 +174,6 @@ const { server, start } = createMcpServer({
 // Graceful shutdown
 async function shutdown(signal: string): Promise<void> {
   console.error(`MCP server received ${signal}, shutting down...`);
-  try {
-    await ctx.deviceManager.cleanup();
-  } catch (e) {
-    console.error("Cleanup error:", e);
-  }
   try {
     await kernel.disposeAll();
   } catch (e) {

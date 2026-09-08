@@ -49,6 +49,10 @@ export class AndroidPlugin implements SourcePlugin {
     // No tool registration in Phase 2 — existing MCP tools still wire through
     // device-manager. Phase 5 will move tool registration here.
   }
+
+  dispose(): void {
+    this.adapter.dispose();
+  }
 }
 
 export function createAndroidPlugin(): SourcePlugin {

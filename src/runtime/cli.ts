@@ -26,10 +26,15 @@ Usage
   mcp-devices platforms     list enabled + available platforms
   mcp-devices install <p>...
                                  enable platform(s): android | ios | web |
-                                 desktop | aurora | all
+                                 desktop | aurora | harmony | all
   mcp-devices uninstall <p>...
                                  disable platform(s)
-  mcp-devices doctor [p...] check external toolchains for platforms
+  mcp-devices doctor [p...] check external toolchains; exits nonzero when missing
+  mcp-devices plugins       list enabled + available tool plugins
+  mcp-devices plugin enable <p>...
+                                 enable tool plugins: debug | all
+  mcp-devices plugin disable <p>...
+                                 disable tool plugins
   mcp-devices --init <client>
                                  print the configuration snippet for a
                                  supported client (${INIT_CLIENTS.join(" | ")}) and exit
@@ -41,15 +46,20 @@ Platforms
   what you need with 'install', or 'install all'. Selection persists in
   ~/.mcp-devices/config.json and can be overridden per-run with the
   MCP_DEVICES_PLATFORMS env (csv / all / none).
+  Tool plugins use 'plugin enable' / 'plugin disable' and persist in the same
+  config file. MCP_DEVICES_TOOL_PLUGINS overrides that persisted selection.
 
 Environment
   MCP_DEVICES_PLATFORMS     csv / all / none — overrides enabled set
+  MCP_DEVICES_TOOL_PLUGINS  csv / all / none — overrides enabled tool plugins
   MOBILE_PROFILE                 minimal | core | android | web | full
                                  (default: full)
   DEVICE_ID, ANDROID_SERIAL      preselect Android device
   IOS_DEVICE_ID                  preselect iOS Simulator
+  HARMONY_DEVICE_ID              preselect HarmonyOS device
+  HDC_PATH                       absolute path to the HDC executable
   MCP_DEVICES_BIN           absolute path to the Rust companion binary
-                                 used by the REPL plugin
+                                 (default: mcp-devices-cli)
 
 Docs
   https://github.com/AlexGladkov/claude-in-mobile

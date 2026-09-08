@@ -1,8 +1,9 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import {
   applyInstall,
   applyUninstall,
+  doctorReport,
   formatProbe,
   probePlatform,
   runPlatformCommand,
@@ -14,7 +15,7 @@ describe("applyInstall", () => {
   });
   it("expands all", () => {
     expect(applyInstall([], ["all"]).sort()).toEqual(
-      ["android", "aurora", "desktop", "ios", "web"].sort()
+      ["android", "aurora", "desktop", "harmony", "ios", "web"].sort()
     );
   });
   it("ignores unknown tokens", () => {
@@ -83,12 +84,28 @@ describe("probePlatform (doctor toolchain check)", () => {
 
   it("does NOT report false-MISSING when a probe IS on PATH", () => {
     // Simulates a Windows box with adb on PATH: present=true must yield ok.
-    const found = new Set(["adb", "java", "xcrun", "flutter-aurora"]);
-    for (const p of ["android", "ios", "desktop", "aurora"] as const) {
+    const found = new Set(["adb", "hdc", "java", "xcrun", "flutter-aurora"]);
+    for (const p of ["android", "ios", "desktop", "aurora", "harmony"] as const) {
       const r = probePlatform(p, (bin) => found.has(bin));
       expect(r.missing).toEqual([]);
       expect(formatProbe(r)).toContain("ok (");
     }
+  });
+
+  it("probes HDC for HarmonyOS", () => {
+    const result = probePlatform("harmony", (binary) => binary === "hdc");
+    expect(result.missing).toEqual([]);
+    expect(formatProbe(result)).toContain("ok (hdc)");
+  });
+
+  it("honors HDC_PATH when probing HarmonyOS", () => {
+    const result = probePlatform(
+      "harmony",
+      (binary) => binary === "/opt/deveco/hdc",
+      "/opt/deveco/hdc",
+    );
+    expect(result.missing).toEqual([]);
+    expect(formatProbe(result)).toContain("ok (/opt/deveco/hdc)");
   });
 
   it("web needs no external CLI regardless of presence check", () => {
@@ -96,5 +113,15 @@ describe("probePlatform (doctor toolchain check)", () => {
     expect(r.noExternalCli).toBe(true);
     expect(r.missing).toEqual([]);
     expect(formatProbe(r)).toContain("no external CLI required");
+  });
+
+  it("returns an unhealthy verdict when any requested toolchain is missing", () => {
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+    try {
+      expect(doctorReport(["android", "web"], () => false)).toBe(false);
+      expect(doctorReport(["android", "web"], (binary) => binary === "adb")).toBe(true);
+    } finally {
+      log.mockRestore();
+    }
   });
 });

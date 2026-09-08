@@ -2,8 +2,11 @@
 export type {
   CorePlatformAdapter,
   AppManagementAdapter,
+  AppInventoryAdapter,
   PermissionAdapter,
   ShellAdapter,
+  FileTransferAdapter,
+  UrlOpeningAdapter,
   SyncScreenshotAdapter,
   PlatformAdapter,
 } from "./platform-adapter.js";
@@ -11,8 +14,11 @@ export type {
 // Type guards
 export {
   hasAppManagement,
+  hasAppInventory,
   hasPermissions,
   hasShell,
+  hasFileTransfer,
+  hasUrlOpening,
   hasSyncScreenshot,
 } from "./platform-adapter.js";
 

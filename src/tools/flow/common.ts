@@ -252,7 +252,7 @@ export function formatFlowResults(
 
 // Zod schemas
 export const platformEnum = z
-  .enum(["android", "ios", "desktop", "aurora", "browser"])
+  .enum(["android", "ios", "desktop", "aurora", "harmony", "browser"])
   .optional()
   .describe("Target platform. If not specified, uses the active target.");
 

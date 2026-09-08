@@ -35,114 +35,94 @@ export class BrowserClient {
   async launch(options: BrowserOpenOptions): Promise<BrowserSession> {
     const { url, session = DEFAULT_SESSION, headless = false } = options;
     this.validateUrl(url);
-
+    const lockToken = this.sessionManager.acquireLock(session);
     const profileDir = this.sessionManager.getProfileDir(session);
+    let chrome: LaunchedChrome | undefined;
+    let cdp: CDPClientInterface | undefined;
 
-    // Kill any orphaned Chrome from previous run
-    this.sessionManager.cleanupOrphanChrome(session);
-
-    const chromeLauncher = await import("chrome-launcher");
-    // chrome-remote-interface ships without bundled .d.ts; the previous
-    // require()-based code was implicitly `any`. Preserve that shape via an
-    // explicit cast so the rest of the function continues to type-check
-    // exactly as before the ESM migration.
-    // @ts-expect-error — no type declarations published for chrome-remote-interface
-    const cdpModule = (await import("chrome-remote-interface")) as {
-      default?: unknown;
-    } & Record<string, unknown>;
-    const CDP = (cdpModule.default ?? cdpModule) as (
-      opts: { port: number }
-    ) => Promise<CDPClientInterface>;
-
-    const chromeFlags = [
-      "--disable-gpu",
-      "--no-first-run",
-      "--no-default-browser-check",
-      "--disable-extensions",
-      "--disable-background-networking",
-      "--disable-sync",
-      "--disable-translate",
-      "--disable-save-password-bubble",
-      "--password-store=basic",
-      `--user-data-dir=${profileDir}`,
-    ];
-
-    if (headless) {
-      chromeFlags.push("--headless=new");
-    }
-
-    // CI/Docker safety flags
-    if (process.env.CI || process.env.DOCKER) {
-      chromeFlags.push("--no-sandbox", "--disable-dev-shm-usage");
-    }
-
-    let chrome: LaunchedChrome;
     try {
-      // Cast to local LaunchedChrome — upstream's `kill()` is `void` while we
-      // model it as `Promise<void>` (caller already `.await`s and the runtime
-      // value works either way). Was implicit when chrome-launcher came in via
-      // require().
-      chrome = (await chromeLauncher.launch({
-        chromeFlags,
-        handleSIGINT: false,
-        port: 0, // auto-select free port
-        logLevel: "silent",
-      })) as unknown as LaunchedChrome;
-    } catch (err: unknown) {
-      const errObj = err as { message?: string; code?: string };
-      if (errObj.message?.includes("not found") || errObj.code === "ENOENT") {
-        throw new Error(
-          "Chrome/Chromium not found. Install Google Chrome or set CHROME_PATH environment variable."
-        );
+      this.sessionManager.cleanupOrphanChrome(session);
+      const chromeLauncher = await import("chrome-launcher");
+      // @ts-expect-error — no type declarations published for chrome-remote-interface
+      const cdpModule = (await import("chrome-remote-interface")) as {
+        default?: unknown;
+      } & Record<string, unknown>;
+      const CDP = (cdpModule.default ?? cdpModule) as (
+        opts: { port: number }
+      ) => Promise<CDPClientInterface>;
+
+      const chromeFlags = [
+        "--disable-gpu",
+        "--no-first-run",
+        "--no-default-browser-check",
+        "--disable-extensions",
+        "--disable-background-networking",
+        "--disable-sync",
+        "--disable-translate",
+        "--disable-save-password-bubble",
+        "--password-store=basic",
+        `--user-data-dir=${profileDir}`,
+      ];
+      if (headless) chromeFlags.push("--headless=new");
+      if (process.env.CI || process.env.DOCKER) {
+        chromeFlags.push("--no-sandbox", "--disable-dev-shm-usage");
       }
-      throw err;
-    }
 
-    // Save PID for orphan detection
-    this.sessionManager.writePidFile(session, chrome.process.pid ?? 0);
-    this.sessionManager.writeLockFile(session);
+      try {
+        chrome = (await chromeLauncher.launch({
+          chromeFlags,
+          handleSIGINT: false,
+          port: 0,
+          logLevel: "silent",
+        })) as unknown as LaunchedChrome;
+      } catch (error) {
+        const details = error as { message?: string; code?: string };
+        if (details.message?.includes("not found") || details.code === "ENOENT") {
+          throw new Error(
+            "Chrome/Chromium not found. Install Google Chrome or set CHROME_PATH environment variable.",
+          );
+        }
+        throw error;
+      }
 
-    let cdp: CDPClientInterface;
-    try {
+      this.sessionManager.writePidFile(session, chrome.process.pid ?? 0, lockToken);
       cdp = await CDP({ port: chrome.port });
-    } catch (err) {
-      await chrome.kill().catch(() => {});
-      throw err;
+      const { Page, Runtime, DOM, Network } = cdp;
+      await Promise.all([
+        Page.enable(),
+        Runtime.enable(),
+        DOM.enable(),
+        Network.enable(),
+      ]);
+
+      const browserSession: BrowserSession = {
+        id: session,
+        chrome,
+        cdp,
+        port: chrome.port,
+        profileDir,
+        lockToken,
+        refMap: new Map(),
+        lastRefCounter: 0,
+        url: "",
+      };
+      Page.frameNavigated(() => {
+        browserSession.staleRefMap = new Map(browserSession.refMap);
+        browserSession.refMap.clear();
+        browserSession.lastRefCounter = 0;
+      });
+
+      await this.navigateToUrl(cdp, url);
+      browserSession.url = url;
+      this.sessionManager.setSession(session, browserSession, lockToken);
+      return browserSession;
+    } catch (error) {
+      try { await cdp?.close(); } catch {}
+      try { await chrome?.kill(); } catch {}
+      this.sessionManager.removePidFile(session, lockToken);
+      this.sessionManager.releaseLock(session, lockToken);
+      throw error;
     }
-
-    const { Page, Runtime, DOM, Network } = cdp;
-    await Promise.all([
-      Page.enable(),
-      Runtime.enable(),
-      DOM.enable(),
-      Network.enable(),
-    ]);
-
-    const browserSession: BrowserSession = {
-      id: session,
-      chrome,
-      cdp,
-      port: chrome.port,
-      profileDir,
-      refMap: new Map(),
-      lastRefCounter: 0,
-      url: "",
-    };
-
-    // Preserve stale refs for fallback resolution after navigation
-    Page.frameNavigated(() => {
-      browserSession.staleRefMap = new Map(browserSession.refMap);
-      browserSession.refMap.clear();
-      browserSession.lastRefCounter = 0;
-    });
-
-    this.sessionManager.setSession(session, browserSession);
-
-    // Navigate to URL
-    await this.navigateToUrl(cdp, url);
-    browserSession.url = url;
-
-    return browserSession;
   }
 
   private async navigateToUrl(cdp: CDPClientInterface, url: string): Promise<void> {
@@ -406,11 +386,14 @@ export class BrowserClient {
   }
 
   async close(session: BrowserSession): Promise<void> {
-    try { await session.cdp.close(); } catch {}
-    try { await session.chrome.kill(); } catch {}
     this.sessionManager.removeSession(session.id);
-    this.sessionManager.removePidFile(session.id);
-    this.sessionManager.removeLockFile(session.id);
+    try {
+      try { await session.cdp.close(); } catch {}
+      try { await session.chrome.kill(); } catch {}
+    } finally {
+      this.sessionManager.removePidFile(session.id, session.lockToken);
+      this.sessionManager.releaseLock(session.id, session.lockToken);
+    }
   }
 
   async closeAll(): Promise<void> {

@@ -13,10 +13,10 @@
  * src/device/proxies/.
  *
  * D9.1c split: desktop lifecycle and device selection extracted into
- *   - desktop-facade — launch/stop/cleanup/getClient/isRunning + browser accessor
- *   - device-facade  — listAll, setDevice, getActive, getTarget, target tracking
- * The orchestrator now only owns getAdapter() (with FIX #8 auto-detect),
- * legacy raw client accessors, and webview inspector caching.
+ *   - desktop-facade — launch/stop/getClient/isRunning + browser accessor
+ *   - device-facade — listAll, setDevice, getActive, getTarget, target tracking
+ * The orchestrator now only owns getAdapter() (with FIX #8 auto-detect)
+ * and legacy raw client accessors.
  *
  * Public API of `DeviceManager` and re-exported types (`Platform`,
  * `BuiltinPlatform`, `Device`, `KernelHandleView`, …) is unchanged so
@@ -41,6 +41,7 @@ import { InputProxy } from "./device/proxies/input-proxy.js";
 import { AppProxy } from "./device/proxies/app-proxy.js";
 import { PermissionProxy } from "./device/proxies/permission-proxy.js";
 import { LogProxy } from "./device/proxies/log-proxy.js";
+import { FileTransferProxy } from "./device/proxies/file-transfer-proxy.js";
 import { ScreenProxy } from "./device/proxies/screen-proxy.js";
 import { DesktopFacade } from "./device/proxies/desktop-facade.js";
 import { DeviceFacade } from "./device/proxies/device-facade.js";
@@ -59,15 +60,20 @@ export type { KernelHandleView } from "./device/kernel-device-locator.js";
 export interface DeviceManagerConfig {
   adapters: Map<Platform, CorePlatformAdapter>;
   activeTarget?: Platform;
+  /** Whether this manager, rather than a plugin kernel, owns adapter teardown. */
+  ownsAdapters?: boolean;
 }
 
 export class DeviceManager {
   private adapters: Map<Platform, CorePlatformAdapter>;
+  private readonly ownsAdapters: boolean;
+  private cleanupPromise?: Promise<void>;
 
   private readonly inputProxy: InputProxy;
   private readonly appProxy: AppProxy;
   private readonly permissionProxy: PermissionProxy;
   private readonly logProxy: LogProxy;
+  private readonly fileTransferProxy: FileTransferProxy;
   private readonly screenProxy: ScreenProxy;
   private readonly desktopFacade: DesktopFacade;
   private readonly deviceFacade: DeviceFacade;
@@ -80,17 +86,23 @@ export class DeviceManager {
     handle: KernelHandleView,
     activeTarget: Platform = "android",
   ): DeviceManager {
-    return new DeviceManager({ adapters: adaptersFromKernel(handle), activeTarget });
+    return new DeviceManager({
+      adapters: adaptersFromKernel(handle),
+      activeTarget,
+      ownsAdapters: false,
+    });
   }
 
   constructor(config?: DeviceManagerConfig) {
     let initialTarget: Platform = "android";
     if (config) {
       this.adapters = config.adapters;
+      this.ownsAdapters = config.ownsAdapters ?? true;
       initialTarget = config.activeTarget ?? "android";
     } else {
       const { adapters, envSeededTarget } = buildDefaultAdapters();
       this.adapters = adapters;
+      this.ownsAdapters = true;
       if (envSeededTarget) initialTarget = envSeededTarget;
     }
 
@@ -103,6 +115,7 @@ export class DeviceManager {
     this.appProxy = new AppProxy(resolver);
     this.permissionProxy = new PermissionProxy(resolver);
     this.logProxy = new LogProxy(resolver);
+    this.fileTransferProxy = new FileTransferProxy(resolver);
     this.screenProxy = new ScreenProxy(resolver);
   }
 
@@ -157,7 +170,26 @@ export class DeviceManager {
   }
 
   async stopDesktopApp(): Promise<void> { return this.desktopFacade.stop(); }
-  async cleanup(): Promise<void> { return this.desktopFacade.cleanup(); }
+  async cleanup(): Promise<void> {
+    if (!this.cleanupPromise) {
+      this.cleanupPromise = this.disposeOwnedAdapters();
+    }
+    return this.cleanupPromise;
+  }
+
+  private async disposeOwnedAdapters(): Promise<void> {
+    if (!this.ownsAdapters) return;
+
+    await Promise.all(
+      [...new Set(this.adapters.values())].map(async (adapter) => {
+        try {
+          await adapter.dispose?.();
+        } catch (error) {
+          console.error(`Failed to dispose '${adapter.platform}' adapter:`, error);
+        }
+      }),
+    );
+  }
   getBrowserAdapter(): BrowserAdapterLike { return this.desktopFacade.getBrowser(); }
   getDesktopClient(): DesktopClientLike { return this.desktopFacade.getClient(); }
   isDesktopRunning(): boolean { return this.desktopFacade.isRunning(); }
@@ -252,6 +284,18 @@ export class DeviceManager {
     return this.appProxy.installApp(path, platform, deviceId);
   }
 
+  async listApps(platform?: Platform, deviceId?: string): Promise<string[]> {
+    return this.appProxy.listApps(platform, deviceId);
+  }
+
+  async uninstallApp(
+    packageOrBundleId: string,
+    platform?: Platform,
+    deviceId?: string,
+  ): Promise<string> {
+    return this.appProxy.uninstallApp(packageOrBundleId, platform, deviceId);
+  }
+
   // ============ Permission ops (proxy) ============
 
   grantPermission(packageOrBundleId: string, permission: string, platform?: Platform, deviceId?: string): string {
@@ -287,6 +331,26 @@ export class DeviceManager {
 
   async getSystemInfo(platform?: Platform, deviceId?: string): Promise<string> {
     return this.logProxy.getSystemInfo(platform, deviceId);
+  }
+
+  // ============ File transfer ops (proxy) ============
+
+  async pushFile(
+    localPath: string,
+    remotePath: string,
+    platform?: Platform,
+    deviceId?: string,
+  ): Promise<string> {
+    return this.fileTransferProxy.pushFile(localPath, remotePath, platform, deviceId);
+  }
+
+  async pullFile(
+    remotePath: string,
+    localPath?: string,
+    platform?: Platform,
+    deviceId?: string,
+  ): Promise<string> {
+    return this.fileTransferProxy.pullFile(remotePath, localPath, platform, deviceId);
   }
 
   // ============ Raw client accessors (legacy — prefer getAdapter + capability guards) ============

@@ -11,9 +11,9 @@ export const uiFind = defineTool({
   schema: z.object({
     text: z.string().optional().describe("Find by text (partial match, case-insensitive)"),
     label: z.string().optional().describe("iOS: Find by accessibility label"),
-    resourceId: z.string().optional().describe("Android: Find by resource ID (partial match)"),
-    className: z.string().optional().describe("Find by class name (Android: full class, iOS: XCUIElementType*)"),
-    clickable: z.boolean().optional().describe("Android: Filter by clickable state"),
+    resourceId: z.string().optional().describe("Android/HarmonyOS: Find by resource ID (partial match)"),
+    className: z.string().optional().describe("Find by class or component type"),
+    clickable: z.boolean().optional().describe("Filter by clickable state"),
     visible: z.boolean().optional().describe("iOS: Filter by visibility"),
     platform: platformEnum,
     deviceId: deviceIdField,
@@ -49,7 +49,7 @@ export const uiFind = defineTool({
       }
     }
 
-    const { elements: parsedEls } = await getUiElements(ctx, "android");
+    const { elements: parsedEls } = await getUiElements(ctx, currentPlatform, deviceId);
 
     const found = findElements(parsedEls, {
       text: args.text,
@@ -70,7 +70,7 @@ export const uiFind = defineTool({
 export const uiFindTap = defineTool({
   name: "ui_find_tap",
   description:
-    "Fuzzy tap by natural language element description (Android only). When the matched element is a non-clickable label (common in grid/list items where the parent ViewGroup owns the gesture), walks up to the smallest containing clickable ancestor by default — set walkToClickable=false to tap the matched element directly.",
+    "Fuzzy tap by natural language element description (Android/HarmonyOS). When the matched element is a non-clickable label (common in grid/list items where the parent owns the gesture), walks up to the smallest containing clickable ancestor by default — set walkToClickable=false to tap the matched element directly.",
   schema: z.object({
     description: z
       .string()
@@ -91,15 +91,15 @@ export const uiFindTap = defineTool({
   handler: async (args, ctx) => {
     const { deviceId, platform: currentPlatform } = parseCommonArgs(args as Record<string, unknown>, ctx);
 
-    if (currentPlatform !== "android") {
-      return textResult("ui(action:'find_tap') is only available for Android. Use tap with coordinates for iOS/Desktop.");
+    if (currentPlatform !== "android" && currentPlatform !== "harmony") {
+      return textResult("ui(action:'find_tap') is available for Android and HarmonyOS. Use tap with coordinates for iOS/Desktop.");
     }
 
     const description = args.description;
     const minConfidence = args.minConfidence;
     const walkToClickable = args.walkToClickable;
 
-    const { elements: tapElements } = await getUiElements(ctx, "android");
+    const { elements: tapElements } = await getUiElements(ctx, currentPlatform, deviceId);
 
     const match = findBestMatch(tapElements, description, { walkToClickable });
 
@@ -117,7 +117,7 @@ export const uiFindTap = defineTool({
       );
     }
 
-    await ctx.deviceManager.tap(match.element.centerX, match.element.centerY, "android", undefined, deviceId);
+    await ctx.deviceManager.tap(match.element.centerX, match.element.centerY, currentPlatform, undefined, deviceId);
 
     return textResult(
       `Tapped "${description}" (${match.confidence}% confidence)\n` +
@@ -147,7 +147,7 @@ export const uiTapText = defineTool({
 
     if (currentPlatform !== "desktop") {
       return textResult(
-        "ui(action:'tap_text') is only available for Desktop (macOS). Use ui(action:'find_tap') for Android or input(action:'tap') with coordinates for iOS.",
+        "ui(action:'tap_text') is only available for Desktop (macOS). Use ui(action:'find_tap') for Android/HarmonyOS or input(action:'tap') with coordinates for iOS.",
       );
     }
 

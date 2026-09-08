@@ -1,19 +1,18 @@
 /**
  * AuroraAdapter -- wraps AuroraClient.
  *
- * Implements:
- *   - CorePlatformAdapter
- *   - AppManagementAdapter
- *   - ShellAdapter
- *   - SyncScreenshotAdapter
+ * Implements core interaction, app lifecycle and inventory, shell/logs,
+ * file transfer, and synchronous screenshots.
  *
  * Does NOT implement PermissionAdapter -- Aurora OS does not support
  * runtime permission management.
  */
 
 import type {
-  CorePlatformAdapter,
+  AppInventoryAdapter,
   AppManagementAdapter,
+  CorePlatformAdapter,
+  FileTransferAdapter,
   ShellAdapter,
   SyncScreenshotAdapter,
 } from "mcp-devices/adapters/platform-adapter";
@@ -22,7 +21,13 @@ import { auroraClient as defaultAuroraClient, AuroraClient } from "./client.js";
 import { compressScreenshot, type CompressOptions } from "mcp-devices/utils/image";
 
 export class AuroraAdapter
-  implements CorePlatformAdapter, AppManagementAdapter, ShellAdapter, SyncScreenshotAdapter
+  implements
+    CorePlatformAdapter,
+    AppManagementAdapter,
+    AppInventoryAdapter,
+    ShellAdapter,
+    FileTransferAdapter,
+    SyncScreenshotAdapter
 {
   readonly platform = "aurora" as const;
   private client: AuroraClient;
@@ -146,6 +151,16 @@ export class AuroraAdapter
     return this.client.installApp(path);
   }
 
+  // ============ App inventory (AppInventoryAdapter) ============
+
+  listApps(): string[] {
+    return this.client.listPackages();
+  }
+
+  uninstallApp(packageName: string): string {
+    return this.client.uninstallApp(packageName);
+  }
+
   // ============ Shell / Logs (ShellAdapter) ============
 
   shell(command: string): string {
@@ -163,6 +178,18 @@ export class AuroraAdapter
 
   clearLogs(): string {
     return this.client.clearLogs();
+  }
+
+  // ============ File transfer (FileTransferAdapter) ============
+
+  pushFile(localPath: string, remotePath: string): string {
+    return this.client.pushFile(localPath, remotePath);
+  }
+
+  pullFile(remotePath: string, localPath?: string): string {
+    const destination = localPath ?? remotePath.split("/").at(-1) ?? "pulled_file";
+    const data = this.client.pullFile(remotePath, destination);
+    return `Downloaded ${remotePath} → ${destination} (${data.byteLength} bytes)`;
   }
 
   // ============ System info ============

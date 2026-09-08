@@ -8,8 +8,9 @@
 
 import type { ToolContext } from "../context.js";
 import type { Platform } from "../../device-manager.js";
-import { parseUiHierarchy, findByText, findByResourceId } from "../../ui-tree/ui-parser.js";
+import { findByText, findByResourceId } from "../../ui-tree/ui-parser.js";
 import { ElementNotFoundError } from "../../errors.js";
+import { getUiElements } from "./get-elements.js";
 
 export interface ResolvedCoordinates {
   x: number;
@@ -47,8 +48,8 @@ export function applyScale(
  *
  * Resolution priority:
  * 1. iOS label/text -> WDA element tap (returns iosTapDone)
- * 2. Android index -> cached/fresh element lookup
- * 3. Android text/resourceId -> fresh element lookup
+ * 2. Android/HarmonyOS index -> cached/fresh element lookup
+ * 3. Android/HarmonyOS text/resourceId -> fresh element lookup
  * 4. Raw x/y coordinates (need scale correction)
  *
  * Returns null if no coordinates could be resolved (caller should throw).
@@ -86,21 +87,24 @@ export async function resolveElementCoordinates(
         iosTapDone: true,
         elementId: element.ELEMENT,
       };
-    } catch (_error: any) {
+    } catch {
       throw new ElementNotFoundError(String(args.label || args.text));
     }
   }
 
-  // 2. Find by index from cached elements (Android only) -- device coords, no scale
-  if (args.index !== undefined && currentPlatform === "android") {
+  const hierarchyPlatform =
+    currentPlatform === "android" || currentPlatform === "harmony"
+      ? currentPlatform
+      : undefined;
+
+  // 2. Find by index from cached elements -- device coords, no scale
+  if (args.index !== undefined && hierarchyPlatform) {
     const idx = args.index as number;
-    let elements = ctx.getCachedElements("android");
+    let elements = ctx.getCachedElements(hierarchyPlatform);
     if (elements.length === 0) {
-      const xml = await ctx.deviceManager.getUiHierarchyAsync("android", deviceId);
-      elements = parseUiHierarchy(xml);
-      ctx.setCachedElements("android", elements);
+      ({ elements } = await getUiElements(ctx, hierarchyPlatform, deviceId));
     }
-    const el = elements.find(e => e.index === idx);
+    const el = elements.find((element) => element.index === idx);
     if (!el) {
       throw new ElementNotFoundError(`index ${idx}`);
     }
@@ -112,11 +116,13 @@ export async function resolveElementCoordinates(
     };
   }
 
-  // 3. Find by text or resourceId (Android only) -- device coords, no scale
-  if ((args.text || args.resourceId) && currentPlatform === "android") {
-    const xml = await ctx.deviceManager.getUiHierarchyAsync("android", deviceId);
-    const elements = parseUiHierarchy(xml);
-    ctx.setCachedElements("android", elements);
+  // 3. Find by text or resourceId -- device coords, no scale
+  if ((args.text || args.resourceId) && hierarchyPlatform) {
+    const { elements } = await getUiElements(
+      ctx,
+      hierarchyPlatform,
+      deviceId,
+    );
 
     let found: import("../../ui-tree/ui-parser.js").UiElement[] = [];
     if (args.text) {
@@ -129,7 +135,7 @@ export async function resolveElementCoordinates(
       throw new ElementNotFoundError(String(args.text || args.resourceId));
     }
 
-    const clickable = found.filter(el => el.clickable);
+    const clickable = found.filter((element) => element.clickable);
     const target = clickable[0] ?? found[0];
     return {
       x: target.centerX,

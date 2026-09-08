@@ -53,7 +53,7 @@ export const getElementsForPlatform = createGetElementsForPlatform(deviceManager
 // Platform parameter schema (reused across tools)
 export const platformParam = {
   type: "string",
-  enum: ["android", "ios", "desktop", "aurora", "browser"],
+  enum: ["android", "ios", "desktop", "aurora", "harmony", "browser"],
   description: "Target platform. If not specified, uses the active target.",
 };
 

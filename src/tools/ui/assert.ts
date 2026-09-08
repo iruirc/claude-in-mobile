@@ -10,13 +10,13 @@ export const uiAssertVisible = defineTool({
   description: "Assert element is visible on screen (pass/fail)",
   schema: z.object({
     text: z.string().optional().describe("Element text to check for (partial match)"),
-    resourceId: z.string().optional().describe("Android: resource ID to check for"),
+    resourceId: z.string().optional().describe("Android/HarmonyOS: resource ID to check for"),
     className: z.string().optional().describe("Find by class name (partial match)"),
     platform: platformEnum,
     deviceId: deviceIdField,
   }),
   handler: async (args, ctx) => {
-    const { platform: currentPlatform } = parseCommonArgs(args as Record<string, unknown>, ctx);
+    const { deviceId, platform: currentPlatform } = parseCommonArgs(args as Record<string, unknown>, ctx);
     const searchText = args.text;
     const searchId = args.resourceId;
     const searchClass = args.className;
@@ -25,7 +25,7 @@ export const uiAssertVisible = defineTool({
       return textResult("Provide text, resourceId, or className to assert");
     }
 
-    const { elements } = await getUiElements(ctx, currentPlatform);
+    const { elements } = await getUiElements(ctx, currentPlatform, deviceId);
 
     const found = findElements(elements, {
       text: searchText,
@@ -47,13 +47,13 @@ export const uiAssertGone = defineTool({
   description: "Assert element does NOT exist on screen (pass/fail)",
   schema: z.object({
     text: z.string().optional().describe("Element text that should NOT be present"),
-    resourceId: z.string().optional().describe("Android: resource ID that should NOT be present"),
+    resourceId: z.string().optional().describe("Android/HarmonyOS: resource ID that should NOT be present"),
     className: z.string().optional().describe("Class name that should NOT be present (partial match)"),
     platform: platformEnum,
     deviceId: deviceIdField,
   }),
   handler: async (args, ctx) => {
-    const { platform: currentPlatform } = parseCommonArgs(args as Record<string, unknown>, ctx);
+    const { deviceId, platform: currentPlatform } = parseCommonArgs(args as Record<string, unknown>, ctx);
     const searchText = args.text;
     const searchId = args.resourceId;
     const searchClass = args.className;
@@ -62,7 +62,7 @@ export const uiAssertGone = defineTool({
       return textResult("Provide text, resourceId, or className to assert absence");
     }
 
-    const { elements } = await getUiElements(ctx, currentPlatform);
+    const { elements } = await getUiElements(ctx, currentPlatform, deviceId);
 
     const found = findElements(elements, {
       text: searchText,

@@ -1,5 +1,6 @@
 import { describe, it, expect, vi } from "vitest";
 import { systemTools } from "./system-tools.js";
+import { systemMeta } from "./meta/system-meta.js";
 import { MobileError } from "../errors.js";
 import type { ToolContext } from "./context.js";
 
@@ -10,13 +11,24 @@ function findHandler(name: string) {
 }
 
 function makeMockContext(overrides?: Partial<ToolContext>): ToolContext {
+  const defaultAdapter = {
+    platform: "android",
+    shell: vi.fn(),
+    getLogs: vi.fn(),
+    clearLogs: vi.fn(),
+  };
+  const deviceManager = {
+    getCurrentPlatform: vi.fn(() => "android"),
+    getAdapter: vi.fn(() => defaultAdapter),
+    getLogs: vi.fn(() => ""),
+    clearLogs: vi.fn(() => "Logcat buffer cleared"),
+    shell: vi.fn(() => ""),
+    pushFile: vi.fn(() => "uploaded"),
+    pullFile: vi.fn(() => "downloaded"),
+    ...overrides?.deviceManager,
+  } as any;
   return {
-    deviceManager: {
-      getCurrentPlatform: vi.fn(() => "android"),
-      getLogs: vi.fn(() => ""),
-      clearLogs: vi.fn(() => "Logcat buffer cleared"),
-      shell: vi.fn(() => ""),
-    } as any,
+    deviceManager,
     getCachedElements: vi.fn(() => []),
     setCachedElements: vi.fn(),
     lastScreenshotMap: new Map(),
@@ -26,11 +38,88 @@ function makeMockContext(overrides?: Partial<ToolContext>): ToolContext {
     getElementsForPlatform: vi.fn(async () => []),
     iosTreeToUiElements: vi.fn(() => []),
     formatIOSUITree: vi.fn(() => ""),
-    platformParam: { type: "string", enum: ["android", "ios", "desktop", "aurora", "browser"], description: "" },
+    platformParam: { type: "string", enum: ["android", "ios", "desktop", "aurora", "harmony", "browser"], description: "" },
     handleTool: vi.fn(async () => ({ text: "ok" })),
     ...overrides,
+    deviceManager,
   };
 }
+
+describe("generic system capabilities", () => {
+  it("transfers files to HarmonyOS through the system surface", async () => {
+    const pushFile = vi.fn(() => "Uploaded sample.txt");
+    const ctx = makeMockContext({
+      deviceManager: {
+        getCurrentPlatform: vi.fn(() => "harmony"),
+        pushFile,
+      } as any,
+    });
+
+    const result = await findHandler("system_file_push")({
+      localPath: "sample.txt",
+      remotePath: "/data/local/tmp/sample.txt",
+      platform: "harmony",
+      deviceId: "phone",
+    }, ctx);
+
+    expect((result as { text: string }).text).toBe("Uploaded sample.txt");
+    expect(pushFile).toHaveBeenCalledWith(
+      "sample.txt",
+      "/data/local/tmp/sample.txt",
+      "harmony",
+      "phone",
+    );
+  });
+
+  it("opens URLs on HarmonyOS through argv-safe adapter dispatch", async () => {
+    const openUrl = vi.fn(() => "opened");
+    const ctx = makeMockContext({
+      deviceManager: {
+        getCurrentPlatform: vi.fn(() => "harmony"),
+        getAdapter: vi.fn(() => ({ platform: "harmony", openUrl })),
+      } as any,
+    });
+
+    const result = await findHandler("system_open_url")({
+      url: "https://example.com/path?a=1&b=2",
+      platform: "harmony",
+      deviceId: "phone",
+    }, ctx);
+
+    expect((result as { text: string }).text).toBe(
+      "Opened URL: https://example.com/path?a=1&b=2",
+    );
+    expect(openUrl).toHaveBeenCalledWith(
+      "https://example.com/path?a=1&b=2",
+      "phone",
+    );
+  });
+
+  it("pulls files through the same HarmonyOS capability route", async () => {
+    const pullFile = vi.fn(() => "Downloaded screenshot.png");
+    const ctx = makeMockContext({
+      deviceManager: {
+        getCurrentPlatform: vi.fn(() => "harmony"),
+        pullFile,
+      } as any,
+    });
+
+    const result = await findHandler("system_file_pull")({
+      remotePath: "/data/local/tmp/screenshot.png",
+      localPath: "screenshot.png",
+      platform: "harmony",
+      deviceId: "phone",
+    }, ctx);
+
+    expect((result as { text: string }).text).toBe("Downloaded screenshot.png");
+    expect(pullFile).toHaveBeenCalledWith(
+      "/data/local/tmp/screenshot.png",
+      "screenshot.png",
+      "harmony",
+      "phone",
+    );
+  });
+});
 
 // ──────────────────────────────────────────────
 // system_wait_log
@@ -39,16 +128,37 @@ function makeMockContext(overrides?: Partial<ToolContext>): ToolContext {
 describe("system_wait_log", () => {
   const handler = findHandler("system_wait_log");
 
-  it("returns 'only available for Android' on non-android platform", async () => {
+  it("matches HarmonyOS HiLog output", async () => {
     const ctx = makeMockContext({
       deviceManager: {
-        getCurrentPlatform: vi.fn(() => "ios"),
-        getLogs: vi.fn(() => ""),
-        clearLogs: vi.fn(() => ""),
+        getCurrentPlatform: vi.fn(() => "harmony"),
+        getAdapter: vi.fn(() => ({
+          platform: "harmony",
+          shell: vi.fn(),
+          getLogs: vi.fn(),
+          clearLogs: vi.fn(),
+        })),
+        getLogs: vi.fn(() => "I Demo HarmonyReady"),
       } as any,
     });
-    const result = await handler({ pattern: "anything" }, ctx);
-    expect((result as { text: string }).text).toContain("only available for Android");
+    const result = await handler({
+      pattern: "HarmonyReady",
+      platform: "harmony",
+      timeoutMs: 500,
+      pollIntervalMs: 100,
+    }, ctx);
+    expect((result as { text: string }).text).toContain("Match found");
+  });
+
+  it("rejects a platform without logs support", async () => {
+    const ctx = makeMockContext({
+      deviceManager: {
+        getCurrentPlatform: vi.fn(() => "browser"),
+        getAdapter: vi.fn(() => ({ platform: "browser" })),
+      } as any,
+    });
+    const result = await handler({ pattern: "anything", platform: "browser" }, ctx);
+    expect((result as { text: string }).text).toContain("not supported for browser");
   });
 
   it("rejects empty pattern", async () => {
@@ -392,5 +502,42 @@ describe("system_shell — injection denylist", () => {
     const result = await handler({ command: "uname -a", platform: "aurora" }, ctx);
     expect(shell).toHaveBeenCalledWith("uname -a", "aurora", undefined);
     expect((result as { text: string }).text).toContain("ok");
+  });
+});
+
+describe("system meta action reachability", () => {
+  it("dispatches wait_log, pid_of, and is_running through the primary surface", async () => {
+    const ctx = makeMockContext({
+      deviceManager: {
+        getCurrentPlatform: vi.fn(() => "android"),
+        getAdapter: vi.fn(() => ({
+          platform: "android",
+          shell: vi.fn(),
+          getLogs: vi.fn(),
+          clearLogs: vi.fn(),
+        })),
+        getLogs: vi.fn(() => "I Demo MetaReady"),
+        shell: vi.fn(() => "4242"),
+      } as any,
+    });
+
+    const waited = await systemMeta.handler({
+      action: "wait_log",
+      pattern: "MetaReady",
+      timeoutMs: 500,
+      pollIntervalMs: 100,
+    }, ctx);
+    const pid = await systemMeta.handler({
+      action: "pid_of",
+      package: "com.example.demo",
+    }, ctx);
+    const running = await systemMeta.handler({
+      action: "is_running",
+      package: "com.example.demo",
+    }, ctx);
+
+    expect((waited as { text: string }).text).toContain("Match found");
+    expect((pid as { text: string }).text).toBe("4242");
+    expect((running as { text: string }).text).toBe("true (pid=4242)");
   });
 });

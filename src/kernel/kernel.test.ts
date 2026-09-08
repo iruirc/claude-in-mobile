@@ -152,7 +152,9 @@ describe("LifecycleOrchestrator", () => {
       eventBus: bus,
       logger: silentLogger(),
       configFor: () => ({}),
-      onToolRegistered: (pluginId, def) => tools.push({ pluginId, def }),
+      registerTools: (pluginId, defs) => {
+        tools.push(...defs.map((def) => ({ pluginId, def })));
+      },
       initTimeoutMs: 200,
       disposeTimeoutMs: 200,
     });
@@ -196,12 +198,15 @@ describe("LifecycleOrchestrator", () => {
   });
 
   it("init timeout marks failed", async () => {
+    vi.useFakeTimers();
     registry.register(
       makePlugin("slow", ["screen"], {
         init: () => new Promise(() => {}),
       })
     );
-    await orchestrator.initAll();
+    const initializing = orchestrator.initAll();
+    await vi.advanceTimersByTimeAsync(201);
+    await initializing;
     expect(registry.get("slow")?.state).toBe("failed");
     expect(registry.get("slow")?.lastError).toContain("timed out");
   });
@@ -223,6 +228,117 @@ describe("LifecycleOrchestrator", () => {
     await orchestrator.disposeAll();
     expect(disposed).toEqual(["a"]);
     expect(registry.get("a")?.state).toBe("disposed");
+  });
+
+  it("does not commit tools from a failed initialization", async () => {
+    registry.register(makePlugin("bad-tools", ["screen"], {
+      init: (ctx) => {
+        ctx.registerTool({
+          name: "bad.tool",
+          description: "",
+          inputSchema: {},
+          handler: async () => null,
+        });
+        throw new Error("after registration");
+      },
+    }));
+
+    await orchestrator.initAll();
+
+    expect(tools).toEqual([]);
+    expect(registry.get("bad-tools")?.state).toBe("failed");
+  });
+
+  it("aborts timed-out init and rejects late registration", async () => {
+    vi.useFakeTimers();
+    let release!: () => void;
+    let lateError: unknown;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    registry.register(makePlugin("late", ["screen"], {
+      init: async (ctx) => {
+        ctx.registerTool({
+          name: "early.tool",
+          description: "",
+          inputSchema: {},
+          handler: async () => null,
+        });
+        await gate;
+        try {
+          ctx.registerTool({
+            name: "late.tool",
+            description: "",
+            inputSchema: {},
+            handler: async () => null,
+          });
+        } catch (error) {
+          lateError = error;
+        }
+      },
+    }));
+    const initializing = orchestrator.initAll();
+    await vi.advanceTimersByTimeAsync(201);
+    await initializing;
+    release();
+    await Promise.resolve();
+
+    expect(tools).toEqual([]);
+    expect(lateError).toBeInstanceOf(Error);
+    expect(registry.get("late")?.state).toBe("failed");
+  });
+
+  it("runs concurrent disposal once and in reverse registry order", async () => {
+    const disposed: string[] = [];
+    registry.register(makePlugin("first", ["screen"], {
+      dispose: () => { disposed.push("first"); },
+    }));
+    registry.register(makePlugin("second", ["screen"], {
+      dispose: () => { disposed.push("second"); },
+    }));
+    await orchestrator.initAll();
+
+    await Promise.all([orchestrator.disposeAll(), orchestrator.disposeAll()]);
+
+    expect(disposed).toEqual(["second", "first"]);
+  });
+
+  it("aborts an active plugin signal before disposal", async () => {
+    let signal: AbortSignal | undefined;
+    let abortedDuringDispose = false;
+    registry.register(makePlugin("signaled", ["screen"], {
+      init: (ctx) => { signal = ctx.signal; },
+      dispose: () => { abortedDuringDispose = signal?.aborted === true; },
+    }));
+    await orchestrator.initAll();
+
+    expect(signal?.aborted).toBe(false);
+    await orchestrator.disposeAll();
+
+    expect(abortedDuringDispose).toBe(true);
+  });
+
+  it("aborts initialization when disposal is requested immediately", async () => {
+    vi.useFakeTimers();
+    let release!: () => void;
+    let signal: AbortSignal | undefined;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    registry.register(makePlugin("racy", ["screen"], {
+      init: (ctx) => {
+        signal = ctx.signal;
+        return gate;
+      },
+    }));
+    const entry = registry.get("racy")!;
+    const initializing = orchestrator.initOne(entry);
+    const disposing = orchestrator.disposeOne(entry);
+    await Promise.resolve();
+
+    expect(signal?.aborted).toBe(true);
+    await vi.advanceTimersByTimeAsync(101);
+    await disposing;
+    release();
+    await initializing;
+
+    expect(entry.state).toBe("disposed");
   });
 });
 

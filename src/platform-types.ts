@@ -14,7 +14,7 @@
  * autocomplete, exhaustive switches that opt in via `assertNever`) still
  * see the canonical names.
  */
-export type BuiltinPlatform = "android" | "ios" | "desktop" | "aurora" | "browser";
+export type BuiltinPlatform = "android" | "ios" | "desktop" | "aurora" | "harmony" | "browser";
 
 /**
  * Open platform identifier. Accepts any string at the type level, but
@@ -29,6 +29,7 @@ export const BUILTIN_PLATFORMS: ReadonlyArray<BuiltinPlatform> = [
   "ios",
   "desktop",
   "aurora",
+  "harmony",
   "browser",
 ];
 

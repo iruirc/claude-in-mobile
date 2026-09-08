@@ -32,18 +32,25 @@ export type { IosDevice } from "./types.js";
 
 export class IosClient {
   private deviceId?: string;
-  private wdaManager: WDAManager = new WDAManager();
+  private readonly wdaManager: WDAManager;
+  private readonly ownsWdaManager: boolean;
   private wdaClient?: WDAClient;
 
-  constructor(deviceId?: string) {
+  constructor(deviceId?: string, wdaManager?: WDAManager) {
+    this.wdaManager = wdaManager ?? new WDAManager();
+    this.ownsWdaManager = wdaManager === undefined;
     if (deviceId) {
       validateDeviceId(deviceId);
     }
     this.deviceId = deviceId;
   }
 
-  cleanup(): void {
-    this.wdaManager.cleanup();
+  forDevice(deviceId: string): IosClient {
+    return new IosClient(deviceId, this.wdaManager);
+  }
+
+  async cleanup(): Promise<void> {
+    if (this.ownsWdaManager) await this.wdaManager.cleanup();
     this.wdaClient = undefined;
   }
 
@@ -77,7 +84,7 @@ export class IosClient {
       );
     }
 
-    if (!this.wdaClient) {
+    if (!this.wdaClient || !this.wdaManager.isClientActive(effectiveId, this.wdaClient)) {
       this.wdaClient = await this.wdaManager.ensureWDAReady(
         effectiveId,
         this.isSimulatorDevice(effectiveId)

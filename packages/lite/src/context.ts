@@ -36,5 +36,5 @@ export function createLiteDeviceManager(): DeviceManager {
   if (androidDeviceId) activeTarget = "android";
   else if (iosDeviceId) activeTarget = "ios";
 
-  return new DeviceManager({ adapters, activeTarget });
+  return new DeviceManager({ adapters, activeTarget, ownsAdapters: true });
 }

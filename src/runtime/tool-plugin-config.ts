@@ -12,20 +12,22 @@
  * PlatformId. A missing package degrades gracefully (plugin unavailable, no crash).
  */
 
-import { readFileSync } from "node:fs";
-import { homedir } from "node:os";
-import { join } from "node:path";
+import {
+  readRuntimeConfig,
+  runtimeConfigPath,
+  updateRuntimeConfig,
+} from "./config-file.js";
 
 /** Well-known tool plugin identifiers. Extend as new tool plugins ship. */
 export const ALL_TOOL_PLUGINS = ["debug"] as const;
 export type ToolPluginId = (typeof ALL_TOOL_PLUGINS)[number];
 
-function isToolPluginId(s: string): s is ToolPluginId {
-  return (ALL_TOOL_PLUGINS as readonly string[]).includes(s);
+export function isToolPluginId(value: string): value is ToolPluginId {
+  return (ALL_TOOL_PLUGINS as readonly string[]).includes(value);
 }
 
-function configPath(): string {
-  return join(homedir(), ".mcp-devices", "config.json");
+export function toolPluginConfigPath(): string {
+  return runtimeConfigPath();
 }
 
 /** Parse a csv tool-plugin spec into a deduped, valid list. */
@@ -41,20 +43,15 @@ export function parseToolPluginList(raw: string): ToolPluginId[] {
   return [...out];
 }
 
-function readConfigToolPlugins(path = configPath()): ToolPluginId[] | undefined {
-  try {
-    const json = JSON.parse(readFileSync(path, "utf-8")) as {
-      tool_plugins?: unknown;
-    };
-    if (Array.isArray(json.tool_plugins)) {
-      return json.tool_plugins.filter(
-        (s): s is ToolPluginId => typeof s === "string" && isToolPluginId(s),
-      );
-    }
-  } catch {
-    // missing/invalid config → treated as "no preference"
-  }
-  return undefined;
+function readConfigToolPlugins(
+  path = toolPluginConfigPath(),
+): ToolPluginId[] | undefined {
+  const plugins = readRuntimeConfig(path).tool_plugins;
+  if (!Array.isArray(plugins)) return undefined;
+  return plugins.filter(
+    (value): value is ToolPluginId =>
+      typeof value === "string" && isToolPluginId(value),
+  );
 }
 
 /**
@@ -67,4 +64,12 @@ export function resolveEnabledToolPlugins(): ToolPluginId[] {
   const fromConfig = readConfigToolPlugins();
   if (fromConfig !== undefined) return fromConfig;
   return [];
+}
+
+export function writeEnabledToolPlugins(
+  plugins: readonly ToolPluginId[],
+  path = toolPluginConfigPath(),
+): void {
+  const deduped = [...new Set(plugins)].filter(isToolPluginId);
+  updateRuntimeConfig({ tool_plugins: deduped }, path);
 }

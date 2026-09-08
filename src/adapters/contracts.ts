@@ -57,7 +57,7 @@ export type RawLaunchOptionsLike = Record<string, unknown>;
 
 export interface IosClientLike {
   openUrl(url: string, deviceId?: string): void | Promise<void>;
-  cleanup(): void;
+  cleanup(): void | Promise<void>;
   [key: string]: any;
 }
 

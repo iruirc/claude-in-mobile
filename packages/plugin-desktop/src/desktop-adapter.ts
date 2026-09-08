@@ -89,6 +89,10 @@ export class DesktopAdapter implements CorePlatformAdapter, AppManagementAdapter
     await this.client.stop();
   }
 
+  async dispose(): Promise<void> {
+    await this.client.stop();
+  }
+
   // ============ Core actions ============
 
   private ensureRunning(): void {

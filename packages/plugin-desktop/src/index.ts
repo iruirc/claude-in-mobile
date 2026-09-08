@@ -32,6 +32,10 @@ export class DesktopPlugin implements SourcePlugin {
   }
 
   init(_ctx: PluginContext): void {}
+
+  async dispose(): Promise<void> {
+    await this.adapter.dispose();
+  }
 }
 
 export function createDesktopPlugin(): SourcePlugin {

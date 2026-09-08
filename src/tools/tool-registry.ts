@@ -12,6 +12,7 @@ import type { ModuleCategory, ModuleMeta } from "../profiles.js";
  */
 export class ToolRegistry {
   private readonly toolMap = new Map<string, ToolDefinition>();
+  private readonly toolOwners = new Map<string, string>();
   private readonly aliasMap = new Map<string, string>();
   private readonly aliasDefaultsMap = new Map<
     string,
@@ -32,18 +33,50 @@ export class ToolRegistry {
     this.frozen = true;
   }
 
-  registerTools(defs: ToolDefinition[]): void {
-    if (this.frozen)
-      throw new Error("Registry is frozen. Cannot register tools after initialization.");
-    for (const def of defs) this.toolMap.set(def.tool.name, def);
+  assertToolsAvailable(names: readonly string[], owner: string): void {
+    const staged = new Set<string>();
+    for (const rawName of names) {
+      const name = rawName.trim();
+      if (!name || name !== rawName) {
+        throw new Error(
+          `Tool name from '${owner}' must be non-empty and have no surrounding whitespace.`,
+        );
+      }
+      if (staged.has(name)) {
+        throw new Error(`Tool '${name}' is registered twice by '${owner}'.`);
+      }
+      staged.add(name);
+      if (this.aliasMap.has(name) || this.aliasDefaultsMap.has(name)) {
+        throw new Error(`Tool '${name}' from '${owner}' conflicts with an existing alias.`);
+      }
+      const existingOwner = this.toolOwners.get(name);
+      if (existingOwner && existingOwner !== owner) {
+        throw new Error(
+          `Tool '${name}' from '${owner}' conflicts with owner '${existingOwner}'.`,
+        );
+      }
+    }
   }
 
-  registerToolsHidden(defs: ToolDefinition[]): void {
-    if (this.frozen)
+  registerTools(defs: ToolDefinition[], owner = "legacy"): void {
+    this.registerBatch(defs, owner, false);
+  }
+
+  registerToolsHidden(defs: ToolDefinition[], owner = "legacy"): void {
+    this.registerBatch(defs, owner, true);
+  }
+
+  private registerBatch(defs: ToolDefinition[], owner: string, hidden: boolean): void {
+    if (this.frozen) {
       throw new Error("Registry is frozen. Cannot register tools after initialization.");
+    }
+    const names = defs.map((def) => def.tool.name);
+    this.assertToolsAvailable(names, owner);
     for (const def of defs) {
-      this.toolMap.set(def.tool.name, def);
-      this.hiddenTools.add(def.tool.name);
+      const name = def.tool.name;
+      this.toolMap.set(name, def);
+      this.toolOwners.set(name, owner);
+      if (hidden) this.hiddenTools.add(name);
     }
   }
 
@@ -156,6 +189,7 @@ export class ToolRegistry {
 
   reset(): void {
     this.toolMap.clear();
+    this.toolOwners.clear();
     this.aliasMap.clear();
     this.aliasDefaultsMap.clear();
     this.hiddenTools.clear();
@@ -167,6 +201,7 @@ export class ToolRegistry {
   }
 
   registerAliases(aliases: Record<string, string>): void {
+    this.assertAliasNamesAvailable(Object.keys(aliases));
     for (const [alias, canonical] of Object.entries(aliases)) {
       this.aliasMap.set(alias, canonical);
     }
@@ -175,8 +210,18 @@ export class ToolRegistry {
   registerAliasesWithDefaults(
     aliases: Record<string, { tool: string; defaults: Record<string, unknown> }>,
   ): void {
+    this.assertAliasNamesAvailable(Object.keys(aliases));
     for (const [alias, entry] of Object.entries(aliases)) {
       this.aliasDefaultsMap.set(alias, { canonical: entry.tool, defaults: entry.defaults });
+    }
+  }
+
+  private assertAliasNamesAvailable(names: readonly string[]): void {
+    for (const alias of names) {
+      const owner = this.toolOwners.get(alias);
+      if (owner) {
+        throw new Error(`Alias '${alias}' conflicts with tool owned by '${owner}'.`);
+      }
     }
   }
 

@@ -52,7 +52,7 @@ function loadAll(): FileImport[] {
 }
 
 const PACKAGES = new URL("../packages/", import.meta.url).pathname;
-const PLUGIN_PKGS = ["android", "ios", "web", "desktop", "aurora"] as const;
+const PLUGIN_PKGS = ["android", "ios", "web", "desktop", "aurora", "harmony"] as const;
 
 /** Source files of each extracted platform package, tagged with their package. */
 function loadPluginPackages(): Array<FileImport & { pkg: string }> {
@@ -93,7 +93,7 @@ describe("architecture", () => {
     const violations = all
       .flatMap((f) =>
         f.imports
-          .filter((imp) => /@mcp-devices\/plugin-(android|ios|web|desktop|aurora|all)/.test(imp))
+          .filter((imp) => /@mcp-devices\/plugin-(android|ios|web|desktop|aurora|harmony|all)/.test(imp))
           .map((imp) => `${f.file} → ${imp}`)
       );
     expect(violations).toEqual([]);

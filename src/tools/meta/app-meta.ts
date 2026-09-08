@@ -3,7 +3,7 @@ import { appTools } from "../app-tools.js";
 import type { ToolDefinition } from "../registry.js";
 
 /**
- * Meta tool for app lifecycle: launch, stop, install, list.
+ * Meta tool for app lifecycle and inventory: launch, stop, install, uninstall, list.
  *
  * Naming note: app tools use `package` (short form for package identifier),
  * while store tools use `packageName` (Android convention). Both refer to
@@ -14,13 +14,13 @@ import type { ToolDefinition } from "../registry.js";
  */
 const { meta: rawMeta, aliases } = createMetaTool({
   name: "app",
-  description: "App lifecycle: launch, stop, install, list",
+  description: "App lifecycle and inventory: launch, stop, install, uninstall, list",
   tools: appTools,
   prefix: "app_",
   extraSchema: {
     packageName: {
       type: "string",
-      description: "Alias for 'package'. App package name (Android) or bundle ID (iOS). Either 'package' or 'packageName' can be used.",
+      description: "Alias for 'package'. App package or bundle ID (Android/iOS/HarmonyOS). Either 'package' or 'packageName' can be used.",
     },
   },
 });

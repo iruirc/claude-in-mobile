@@ -55,6 +55,8 @@ export interface CorePlatformAdapter {
 
   // -- System info --
   getSystemInfo(deviceId?: string): Promise<string>;
+  /** Release long-lived resources owned by this adapter. Safe to call repeatedly. */
+  dispose?(): void | Promise<void>;
 }
 
 // ============ App management capability ============
@@ -63,6 +65,13 @@ export interface AppManagementAdapter {
   launchApp(packageOrBundleId: string, deviceId?: string): string | Promise<string>;
   stopApp(packageOrBundleId: string, deviceId?: string): void;
   installApp(path: string, deviceId?: string): string;
+}
+
+// ============ App inventory capability ============
+
+export interface AppInventoryAdapter {
+  listApps(deviceId?: string): string[] | Promise<string[]>;
+  uninstallApp(packageOrBundleId: string, deviceId?: string): string | Promise<string>;
 }
 
 // ============ Permission management capability ============
@@ -86,6 +95,19 @@ export interface ShellAdapter {
   clearLogs(deviceId?: string): string;
 }
 
+// ============ File transfer capability ============
+
+export interface FileTransferAdapter {
+  pushFile(localPath: string, remotePath: string, deviceId?: string): string | Promise<string>;
+  pullFile(remotePath: string, localPath?: string, deviceId?: string): string | Promise<string>;
+}
+
+// ============ URL opening capability ============
+
+export interface UrlOpeningAdapter {
+  openUrl(url: string, deviceId?: string): string | void | Promise<string | void>;
+}
+
 // ============ Legacy sync screenshot (Android / iOS / Aurora only) ============
 
 export interface SyncScreenshotAdapter {
@@ -102,6 +124,10 @@ export function hasAppManagement(adapter: CorePlatformAdapter): adapter is CoreP
   );
 }
 
+export function hasAppInventory(adapter: CorePlatformAdapter): adapter is CorePlatformAdapter & AppInventoryAdapter {
+  return "listApps" in adapter && "uninstallApp" in adapter;
+}
+
 export function hasPermissions(adapter: CorePlatformAdapter): adapter is CorePlatformAdapter & PermissionAdapter {
   return (
     "grantPermission" in adapter &&
@@ -116,6 +142,14 @@ export function hasShell(adapter: CorePlatformAdapter): adapter is CorePlatformA
     "getLogs" in adapter &&
     "clearLogs" in adapter
   );
+}
+
+export function hasFileTransfer(adapter: CorePlatformAdapter): adapter is CorePlatformAdapter & FileTransferAdapter {
+  return "pushFile" in adapter && "pullFile" in adapter;
+}
+
+export function hasUrlOpening(adapter: CorePlatformAdapter): adapter is CorePlatformAdapter & UrlOpeningAdapter {
+  return "openUrl" in adapter;
 }
 
 export function hasSyncScreenshot(adapter: CorePlatformAdapter): adapter is CorePlatformAdapter & SyncScreenshotAdapter {
@@ -140,6 +174,15 @@ export function requireAppManagement(
   return adapter;
 }
 
+export function requireAppInventory(
+  adapter: CorePlatformAdapter,
+): CorePlatformAdapter & AppInventoryAdapter {
+  if (!hasAppInventory(adapter)) {
+    throw new CapabilityNotSupportedError(adapter.platform, "AppInventory");
+  }
+  return adapter;
+}
+
 export function requirePermissions(
   adapter: CorePlatformAdapter,
 ): CorePlatformAdapter & PermissionAdapter {
@@ -158,6 +201,24 @@ export function requireShell(
   return adapter;
 }
 
+export function requireFileTransfer(
+  adapter: CorePlatformAdapter,
+): CorePlatformAdapter & FileTransferAdapter {
+  if (!hasFileTransfer(adapter)) {
+    throw new CapabilityNotSupportedError(adapter.platform, "FileTransfer");
+  }
+  return adapter;
+}
+
+export function requireUrlOpening(
+  adapter: CorePlatformAdapter,
+): CorePlatformAdapter & UrlOpeningAdapter {
+  if (!hasUrlOpening(adapter)) {
+    throw new CapabilityNotSupportedError(adapter.platform, "UrlOpening");
+  }
+  return adapter;
+}
+
 // ============ Backward-compatible union ============
 
 /**
@@ -171,6 +232,9 @@ export function requireShell(
 export type PlatformAdapter =
   CorePlatformAdapter &
   AppManagementAdapter &
+  AppInventoryAdapter &
   PermissionAdapter &
   ShellAdapter &
+  FileTransferAdapter &
+  UrlOpeningAdapter &
   SyncScreenshotAdapter;

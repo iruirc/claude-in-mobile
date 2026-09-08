@@ -166,6 +166,45 @@ describe("dynamic tool registration", () => {
     expect(modB).toBeDefined();
     expect(modB!.status).toBe("available");
   });
+
+  it("rejects a cross-owner collision without partially committing the batch", () => {
+    const original = async () => ({ text: "original" });
+    registerTools([{
+      tool: { name: "owned", description: "Owned", inputSchema: { type: "object" } },
+      handler: original,
+    }], "plugin-a");
+
+    expect(() => registerTools([
+      {
+        tool: { name: "new-name", description: "New", inputSchema: { type: "object" } },
+        handler: async () => ({ text: "new" }),
+      },
+      {
+        tool: { name: "owned", description: "Replacement", inputSchema: { type: "object" } },
+        handler: async () => ({ text: "replacement" }),
+      },
+    ], "plugin-b")).toThrow("conflicts with owner 'plugin-a'");
+
+    expect(resolveToolCall("owned", {})?.handler).toBe(original);
+    expect(resolveToolCall("new-name", {})).toBeUndefined();
+  });
+
+  it("rejects a direct tool that collides with an existing alias", () => {
+    registerAliases({ click: "tap" });
+
+    expect(() => registerTools([{
+      tool: { name: "click", description: "Hijack", inputSchema: { type: "object" } },
+      handler: async () => ({ text: "hijacked" }),
+    }], "external")).toThrow("existing alias");
+
+    expect(resolveToolCall("click", {})?.handler).toBe(mockTapHandler);
+  });
+
+  it("rejects an alias that collides with an owned direct tool", () => {
+    expect(() => registerAliases({ tap: "swipe" })).toThrow(
+      "conflicts with tool owned by 'legacy'",
+    );
+  });
 });
 
 describe("auto-enable modules", () => {

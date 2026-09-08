@@ -20,6 +20,7 @@ import type { Platform } from "../platform-types.js";
 export interface KernelHandleView {
   registry: {
     list(): readonly {
+      state: string;
       plugin: {
         manifest: { id: string };
         adapter?: CorePlatformAdapter;
@@ -43,7 +44,7 @@ export function adaptersFromKernel(
   for (const entry of handle.registry.list()) {
     const id = entry.plugin.manifest.id as Platform;
     const adapter = entry.plugin.adapter;
-    if (adapter) {
+    if (entry.state === "active" && adapter) {
       adapters.set(id, adapter);
     }
   }

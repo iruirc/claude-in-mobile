@@ -10,7 +10,7 @@ const { meta, aliases } = createMetaTool({
   extraSchema: {
     platform: {
       type: "string",
-      enum: ["android", "ios", "desktop", "aurora", "browser"],
+      enum: ["android", "ios", "desktop", "aurora", "harmony", "browser"],
       description: "Target platform. If not specified, uses the active target.",
     },
     name: { type: "string", description: "Scenario name (e.g. 'login-flow', 'checkout')" },

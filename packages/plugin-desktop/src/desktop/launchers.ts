@@ -15,9 +15,7 @@ import { MobileError } from "mcp-devices/errors";
 import { validateBundleId } from "mcp-devices/utils/sanitize";
 import type { LaunchOptions, LogType } from "./types.js";
 import {
-  BUNDLE_LAUNCH_POLL_INTERVAL_MS,
   getBundleIdFromAppPath,
-  resolvePidByBundleId,
   validateAndResolveAppPath,
   validateAttachPid,
 } from "./permission-allowlist.js";
@@ -25,7 +23,7 @@ import {
 /** Strategy interface — returns the targetPid of the launched/attached app, or null. */
 export interface AppLaunchStrategy {
   launch(): Promise<number | null>;
-  stop(): void;
+  stop(): Promise<void>;
 }
 
 export class GradleAppLauncher implements AppLaunchStrategy {
@@ -46,26 +44,24 @@ export class GradleAppLauncher implements AppLaunchStrategy {
     return null;
   }
 
-  stop(): void {
-    if (this.userAppProcess) {
-      this.gradleLauncher.stop(this.userAppProcess);
-      this.userAppProcess = null;
-    }
+  async stop(): Promise<void> {
+    const child = this.userAppProcess;
+    this.userAppProcess = null;
+    if (child) await this.gradleLauncher.stop(child);
   }
 }
 
 export class BundleAppLauncher implements AppLaunchStrategy {
-  stop(): void {}
+  private directProcess: ChildProcess | null = null;
 
   constructor(
     private readonly opts: Extract<LaunchOptions, { mode: "bundle" }>,
+    private readonly gradleLauncher: GradleLauncher,
     private readonly addLog: (type: LogType, msg: string) => void
   ) {}
-
   async launch(): Promise<number | null> {
     // Both bundleId and appPath are pre-validated by normalizeLaunchOptions — at least one is set.
     const { bundleId, appPath, env } = this.opts;
-    const hasEnv = env && Object.keys(env).length > 0;
     let resolvedBundleId: string;
     let resolvedPath: string | undefined;
 
@@ -78,42 +74,72 @@ export class BundleAppLauncher implements AppLaunchStrategy {
       validateBundleId(resolvedBundleId);
     }
 
-    this.addLog("stdout", `Launching app: ${bundleId ?? resolvedPath}${hasEnv ? ` (with env: ${Object.keys(env!).join(", ")})` : ""}`);
-
-    if (hasEnv) {
-      // `open` cannot pass env vars to the launched app — spawn the binary directly.
-      // resolvedPath is always set when env is used with appPath; derive it from bundleId otherwise.
-      const appPath_ = resolvedPath ?? this.getAppPathFromBundleId(resolvedBundleId);
-      const binaryName = execFileSync(
-        "defaults", ["read", `${appPath_}/Contents/Info`, "CFBundleExecutable"],
-        { encoding: "utf-8", timeout: 3000 }
-      ).trim();
-      const binaryPath = `${appPath_}/Contents/MacOS/${binaryName}`;
-      spawn(binaryPath, [], {
-        env: { ...process.env, ...env },
-        detached: true,
-        stdio: "ignore",
-      }).unref();
-    } else {
-      // No env vars needed — use `open` (proper app launch via LaunchServices)
-      try {
-        if (resolvedPath) {
-          // Pass the realpath-resolved path to `open` to prevent TOCTOU
-          execFileSync("open", [resolvedPath], { timeout: 5000 });
-        } else {
-          execFileSync("open", ["-b", resolvedBundleId], { timeout: 5000 });
-        }
-      } catch (e: any) {
-        throw new MobileError(`Failed to launch app "${bundleId ?? resolvedPath}": ${e.message}`, "BUNDLE_LAUNCH_FAILED");
-      }
+    const binaryPath = this.getExecutablePath(resolvedBundleId, resolvedPath);
+    this.addLog(
+      "stdout",
+      `Launching owned app process: ${bundleId ?? resolvedPath}`,
+    );
+    const child = spawn(binaryPath, [], {
+      env: { ...process.env, ...env },
+      detached: true,
+      stdio: "ignore",
+    });
+    this.directProcess = child;
+    const spawned = this.waitForSpawn(child, resolvedBundleId);
+    child.on("error", (error) => {
+      this.addLog("stderr", `Owned app process error: ${error.message}`);
+    });
+    await spawned;
+    child.unref();
+    const targetPid = child.pid;
+    if (!targetPid) {
+      throw new MobileError(
+        `Failed to obtain PID for app "${resolvedBundleId}"`,
+        "BUNDLE_LAUNCH_FAILED",
+      );
     }
 
-    this.addLog("stdout", `Waiting for app to start (polling every ${BUNDLE_LAUNCH_POLL_INTERVAL_MS}ms)...`);
-    const targetPid = await resolvePidByBundleId(resolvedBundleId);
     this.addLog("stdout", `App started with PID ${targetPid}`);
     return targetPid;
   }
 
+  async stop(): Promise<void> {
+    const directProcess = this.directProcess;
+    if (!directProcess) return;
+    await this.gradleLauncher.stop(directProcess);
+    if (this.directProcess === directProcess) this.directProcess = null;
+  }
+
+  private getExecutablePath(bundleId: string, resolvedPath?: string): string {
+    const appPath = resolvedPath ?? this.getAppPathFromBundleId(bundleId);
+    const binaryName = execFileSync(
+      "defaults", ["read", `${appPath}/Contents/Info`, "CFBundleExecutable"],
+      { encoding: "utf-8", timeout: 3000 }
+    ).trim();
+    return `${appPath}/Contents/MacOS/${binaryName}`;
+  }
+
+  private waitForSpawn(child: ChildProcess, bundleId: string): Promise<void> {
+    return new Promise((resolve, reject) => {
+      const cleanup = () => {
+        child.removeListener("spawn", onSpawn);
+        child.removeListener("error", onError);
+      };
+      const onSpawn = () => {
+        cleanup();
+        resolve();
+      };
+      const onError = (error: Error) => {
+        cleanup();
+        reject(new MobileError(
+          `Failed to launch app "${bundleId}": ${error.message}`,
+          "BUNDLE_LAUNCH_FAILED",
+        ));
+      };
+      child.once("spawn", onSpawn);
+      child.once("error", onError);
+    });
+  }
   private getAppPathFromBundleId(bundleId: string): string {
     try {
       const result = execFileSync(
@@ -122,8 +148,9 @@ export class BundleAppLauncher implements AppLaunchStrategy {
       ).trim();
       // Strip trailing slash that osascript adds
       return result.replace(/\/$/, "");
-    } catch (e: any) {
-      throw new MobileError(`Cannot find app path for bundle ID "${bundleId}": ${e.message}`, "BUNDLE_PATH_NOT_FOUND");
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : String(error);
+      throw new MobileError(`Cannot find app path for bundle ID "${bundleId}": ${message}`, "BUNDLE_PATH_NOT_FOUND");
     }
   }
 }
@@ -140,10 +167,10 @@ export class AttachLauncher implements AppLaunchStrategy {
     return this.opts.pid;
   }
 
-  stop(): void {}
+  async stop(): Promise<void> {}
 }
 
 export class NoOpLauncher implements AppLaunchStrategy {
   async launch(): Promise<number | null> { return null; }
-  stop(): void {}
+  async stop(): Promise<void> {}
 }

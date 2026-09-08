@@ -85,6 +85,11 @@ export class DesktopClient extends EventEmitter {
   };
   private lastLaunchOptions: RawLaunchOptions | null = null;
   private readline: readline.Interface | null = null;
+  private lifecycleQueue: Promise<void> = Promise.resolve();
+  private lifecycleEpoch = 0;
+  private restartTimer?: NodeJS.Timeout;
+  private readonly handledFailures = new WeakSet<ChildProcess>();
+  private teardownPending = false;
 
   /** PID of the user's app — set after native launch or attach. Auto-passed to tap/input/key. */
   targetPid: number | undefined;
@@ -105,32 +110,48 @@ export class DesktopClient extends EventEmitter {
    * Check if running
    */
   isRunning(): boolean {
-    return this.state.status === "running" && this.process !== null && !this.process.killed;
+    return this.state.status === "running"
+      && this.process !== null
+      && this.process.exitCode === null
+      && this.process.signalCode === null;
   }
 
   /**
    * Launch desktop automation. Accepts the flat RawLaunchOptions (backward-compatible)
    * and normalizes internally to the discriminated-union LaunchOptions.
    */
-  async launch(options: RawLaunchOptions): Promise<void> {
-    if (this.isRunning()) {
-      throw new Error("Desktop companion is already running. Stop it first.");
+  launch(options: RawLaunchOptions): Promise<void> {
+    if (
+      this.state.status === "starting"
+      || this.state.status === "running"
+      || this.teardownPending
+      || (this.process !== null
+        && this.process.exitCode === null
+        && this.process.signalCode === null)
+    ) {
+      return Promise.reject(new Error("Desktop companion is already running. Stop it first."));
     }
 
-    const normalized = normalizeLaunchOptions(options);
-    this.lastLaunchOptions = options;
+    const epoch = ++this.lifecycleEpoch;
     this.state = {
       status: "starting",
-      projectPath: normalized.mode === "gradle" ? normalized.projectPath : undefined,
       crashCount: this.state.crashCount,
       targetPid: null,
     };
+    return this.enqueueLifecycle(() => this.runLaunch(options, epoch));
+  }
+
+  private async runLaunch(options: RawLaunchOptions, epoch: number): Promise<void> {
+    let child: ChildProcess | undefined;
 
     try {
+      if (epoch !== this.lifecycleEpoch) throw new Error("Desktop launch cancelled");
+      const normalized = normalizeLaunchOptions(options);
+      this.lastLaunchOptions = options;
+      this.state.projectPath = normalized.mode === "gradle" ? normalized.projectPath : undefined;
       const companionPath = findCompanionAppPath();
       this.addLog("stdout", `Starting companion app: ${companionPath}`);
-
-      this.process = spawn(companionPath, [], {
+      child = spawn(companionPath, [], {
         stdio: ["pipe", "pipe", "pipe"],
         env: {
           ...process.env,
@@ -146,50 +167,77 @@ export class DesktopClient extends EventEmitter {
           })(),
         },
       });
-      this.state.pid = this.process.pid;
+      this.process = child;
+      this.state.pid = child.pid;
 
-      if (this.process.stdout) {
-        this.readline = readline.createInterface({ input: this.process.stdout, crlfDelay: Infinity });
-        this.readline.on("line", (line) => this.handleLine(line));
-      }
-
-      if (this.process.stderr) {
-        this.process.stderr.on("data", (data: Buffer) => {
-          const message = data.toString();
-          this.addLog("stderr", message);
-          if (message.includes("Desktop companion ready") || message.includes("JsonRpcServer started")) {
-            this.state.status = "running";
-            this.emit("ready");
-          }
+      if (child.stdout) {
+        const lines = readline.createInterface({ input: child.stdout, crlfDelay: Infinity });
+        this.readline = lines;
+        lines.on("line", (line) => {
+          if (this.process === child && epoch === this.lifecycleEpoch) this.handleLine(line);
         });
       }
-
-      this.process.on("exit", (code, signal) => this.handleExit(code, signal));
-      this.process.on("error", (error) => {
-        this.addLog("crash", `Process error: ${error.message}`);
-        this.handleCrash(error);
+      child.stderr?.on("data", (data: Buffer) => {
+        if (this.process !== child || epoch !== this.lifecycleEpoch) return;
+        const message = data.toString();
+        this.addLog("stderr", message);
+        if (message.includes("Desktop companion ready") || message.includes("JsonRpcServer started")) {
+          this.state.status = "running";
+          this.emit("ready");
+        }
       });
+      child.stdin?.on("error", (error) => {
+        if (this.process === child) this.handleStreamFailure(error);
+      });
+      child.on("exit", (code, signal) => this.handleExit(child!, epoch, code, signal));
+      child.on("error", (error) => this.handleProcessFailure(child!, epoch, error));
 
-      await this.waitForReady(10000);
+      await this.waitForReady(child, epoch, 10_000);
+      if (epoch !== this.lifecycleEpoch || this.process !== child) {
+        throw new Error("Desktop launch cancelled");
+      }
 
-      this.activeStrategy = this.selectStrategy(normalized);
-      const targetPid = await this.activeStrategy.launch();
+      const strategy = this.selectStrategy(normalized);
+      this.activeStrategy = strategy;
+      const targetPid = await strategy.launch();
+      if (epoch !== this.lifecycleEpoch || this.process !== child) {
+        throw new Error("Desktop launch cancelled");
+      }
       this.state.targetPid = targetPid;
-
-    } catch (error: unknown) {
-      // Kill companion if it was spawned before strategy failure (prevents orphan processes)
-      if (this.process && !this.process.killed) {
-        this.process.kill();
+      this.targetPid = targetPid ?? undefined;
+    } catch (error) {
+      let rollbackError: unknown;
+      try {
+        await this.teardown(child, true);
+      } catch (cleanupError) {
+        rollbackError = cleanupError;
       }
-      if (this.readline) {
-        this.readline.close();
-        this.readline = null;
+      if (epoch === this.lifecycleEpoch) {
+        const message = error instanceof Error ? error.message : String(error);
+        const rollbackMessage = rollbackError instanceof Error
+          ? `; rollback failed: ${rollbackError.message}`
+          : "";
+        this.state.status = rollbackError ? "crashed" : "stopped";
+        this.state.lastError = `${message}${rollbackMessage}`;
+        this.state.pid = undefined;
+        this.state.targetPid = null;
+        this.targetPid = undefined;
       }
-      this.process = null;
-      this.state.status = "stopped";
-      this.state.lastError = error instanceof Error ? error.message : String(error);
+      if (rollbackError) {
+        const message = error instanceof Error ? error.message : String(error);
+        const cleanupMessage = rollbackError instanceof Error
+          ? rollbackError.message
+          : String(rollbackError);
+        throw new Error(`${message}; rollback failed: ${cleanupMessage}`);
+      }
       throw error;
     }
+  }
+
+  private enqueueLifecycle<T>(operation: () => Promise<T>): Promise<T> {
+    const result = this.lifecycleQueue.then(operation, operation);
+    this.lifecycleQueue = result.then(() => undefined, () => undefined);
+    return result;
   }
 
   private selectStrategy(opts: LaunchOptions): AppLaunchStrategy {
@@ -197,11 +245,33 @@ export class DesktopClient extends EventEmitter {
       case "gradle":
         return new GradleAppLauncher(opts, this.gradleLauncher, this.addLog.bind(this));
       case "bundle":
-        return new BundleAppLauncher(opts, this.addLog.bind(this));
+        return new BundleAppLauncher(opts, this.gradleLauncher, this.addLog.bind(this));
       case "attach":
         return new AttachLauncher(opts, this.addLog.bind(this));
       case "companion-only":
         return new NoOpLauncher();
+    }
+  }
+
+  private async stopActiveStrategy(): Promise<void> {
+    const strategy = this.activeStrategy;
+    this.activeStrategy = null;
+    if (strategy) await strategy.stop();
+  }
+
+  private async teardown(child: ChildProcess | undefined, terminateChild: boolean): Promise<void> {
+    const operations: Promise<void>[] = [this.stopActiveStrategy()];
+    if (child) operations.push(this.detachProcess(child, terminateChild));
+    const results = await Promise.allSettled(operations);
+    const errors = results
+      .filter((result): result is PromiseRejectedResult => result.status === "rejected")
+      .map((result) => result.reason);
+    if (errors.length > 0) {
+      throw new Error(
+        `Desktop teardown failed: ${errors.map((error) =>
+          error instanceof Error ? error.message : String(error)
+        ).join("; ")}`,
+      );
     }
   }
 
@@ -212,75 +282,72 @@ export class DesktopClient extends EventEmitter {
   /**
    * Wait for the companion app to be ready
    */
-  private waitForReady(timeoutMs: number): Promise<void> {
+  private waitForReady(
+    child: ChildProcess,
+    epoch: number,
+    timeoutMs: number,
+  ): Promise<void> {
     return new Promise((resolve, reject) => {
       const cleanup = () => {
         clearTimeout(timeout);
         this.removeListener("ready", onReady);
-        this.process?.removeListener("exit", onExit);
+        this.removeListener("lifecycle-cancel", onCancel);
+        child.removeListener("exit", onExit);
       };
-
       const onReady = () => {
+        if (this.process !== child || epoch !== this.lifecycleEpoch) return;
         cleanup();
         resolve();
       };
-
       const onExit = () => {
         cleanup();
         reject(new Error("Desktop app exited before becoming ready"));
       };
-
+      const onCancel = () => {
+        cleanup();
+        reject(new Error("Desktop launch cancelled"));
+      };
       const timeout = setTimeout(() => {
         cleanup();
-        // Consider ready even without explicit signal after timeout
-        // The app might not send a ready signal
-        if (this.process && !this.process.killed) {
-          this.state.status = "running";
-          resolve();
-        } else {
-          reject(new Error("Desktop app failed to start"));
-        }
+        reject(new Error("Desktop companion did not report ready before timeout"));
       }, timeoutMs);
 
       this.once("ready", onReady);
-      this.process?.once("exit", onExit);
+      this.once("lifecycle-cancel", onCancel);
+      child.once("exit", onExit);
     });
   }
 
   /**
    * Stop desktop app
    */
-  async stop(): Promise<void> {
-    if (!this.process) {
-      return;
+  stop(): Promise<void> {
+    ++this.lifecycleEpoch;
+    if (this.restartTimer) {
+      clearTimeout(this.restartTimer);
+      this.restartTimer = undefined;
     }
+    this.lastLaunchOptions = null;
+    this.emit("lifecycle-cancel");
+    return this.enqueueLifecycle(() => this.runStop());
+  }
 
-    // Stop any app process managed by the active strategy (e.g. Gradle child)
-    this.activeStrategy?.stop();
-    this.activeStrategy = null;
-
-    if (this.readline) {
-      this.readline.close();
-      this.readline = null;
+  private async runStop(): Promise<void> {
+    const child = this.process;
+    let cleanupError: unknown;
+    try {
+      await this.teardown(child ?? undefined, true);
+    } catch (error) {
+      cleanupError = error;
     }
-
-    // Reject all pending requests
-    for (const [id, pending] of this.pendingRequests) {
-      clearTimeout(pending.timeout);
-      pending.reject(new Error("Desktop app stopped"));
-    }
-    this.pendingRequests.clear();
-
-    // Stop process
-    this.gradleLauncher.stop(this.process);
-    this.process = null;
+    this.rejectPending(new Error("Desktop app stopped"));
     this.targetPid = undefined;
-
     this.state = {
       status: "stopped",
       crashCount: 0,
       targetPid: null,
     };
+    if (cleanupError) throw cleanupError;
   }
 
   /**
@@ -324,87 +391,144 @@ export class DesktopClient extends EventEmitter {
     }
   }
 
-  /**
-   * Handle process exit
-   */
-  private handleExit(code: number | null, signal: string | null): void {
-    const wasRunning = this.state.status === "running";
-
-    if (code !== 0 && wasRunning) {
+  private handleExit(
+    child: ChildProcess,
+    epoch: number,
+    code: number | null,
+    signal: NodeJS.Signals | null,
+  ): void {
+    if (this.process !== child || epoch !== this.lifecycleEpoch) return;
+    this.emit("lifecycle-cancel");
+    if (code !== 0 && this.state.status !== "stopped") {
       this.addLog("crash", `Process exited with code ${code}, signal ${signal}`);
-      this.handleCrash(new Error(`Exit code: ${code}`));
-    } else {
-      this.state.status = "stopped";
+      this.handleProcessFailure(child, epoch, new Error(`Exit code: ${code}`));
+      return;
     }
-
-    this.process = null;
+    this.teardownPending = true;
+    this.rejectPending(new Error("Desktop app exited"));
+    void this.enqueueLifecycle(async () => {
+      let cleanupError: unknown;
+      try {
+        await this.teardown(child, false);
+      } catch (error) {
+        cleanupError = error;
+      }
+      if (epoch === this.lifecycleEpoch) {
+        this.targetPid = undefined;
+        this.state.status = cleanupError ? "crashed" : "stopped";
+        this.state.pid = undefined;
+        this.state.targetPid = null;
+        if (cleanupError) {
+          this.state.lastError = cleanupError instanceof Error
+            ? cleanupError.message
+            : String(cleanupError);
+        }
+      }
+      this.teardownPending = false;
+      if (cleanupError) this.emit("crash", cleanupError);
+    });
   }
 
-  /**
-   * Detach the old (dead/dying) companion process and its associated handles
-   * so they don't linger until GC when launch() respawns a replacement.
-   * Safe to call when there's nothing to detach.
-   */
-  private detachProcess(): void {
+  private handleStreamFailure(error: Error): void {
+    this.rejectPending(new Error(`Desktop companion stream failed: ${error.message}`));
+    const child = this.process;
+    if (child) this.handleProcessFailure(child, this.lifecycleEpoch, error);
+  }
+
+  private handleProcessFailure(child: ChildProcess, epoch: number, error: Error): void {
+    if (
+      this.process !== child
+      || epoch !== this.lifecycleEpoch
+      || this.handledFailures.has(child)
+    ) return;
+    this.handledFailures.add(child);
+    this.emit("lifecycle-cancel");
+    this.addLog("crash", `Process error: ${error.message}`);
+    this.state.status = "crashed";
+    this.state.crashCount++;
+    this.state.lastError = error.message;
+    this.rejectPending(new Error("Desktop app crashed"));
+    this.teardownPending = true;
+    const options = this.lastLaunchOptions;
+    const crashCount = this.state.crashCount;
+    void this.enqueueLifecycle(async () => {
+      let cleanupError: unknown;
+      try {
+        await this.teardown(child, true);
+      } catch (teardownError) {
+        cleanupError = teardownError;
+      }
+      if (epoch !== this.lifecycleEpoch) {
+        this.teardownPending = false;
+        return;
+      }
+      this.targetPid = undefined;
+      this.state.pid = undefined;
+      this.state.targetPid = null;
+      this.teardownPending = false;
+      if (cleanupError) {
+        const cleanupMessage = cleanupError instanceof Error
+          ? cleanupError.message
+          : String(cleanupError);
+        this.state.lastError = `${error.message}; ${cleanupMessage}`;
+        this.emit("crash", cleanupError);
+        return;
+      }
+
+      if (crashCount <= MAX_RESTARTS && options) {
+        console.error(
+          `Desktop app crashed, restarting (${crashCount}/${MAX_RESTARTS})...`,
+        );
+        this.restartTimer = setTimeout(() => {
+          this.restartTimer = undefined;
+          if (epoch !== this.lifecycleEpoch || this.lastLaunchOptions !== options) return;
+          this.launch(options).catch((restartError: unknown) => {
+            const message = restartError instanceof Error ? restartError.message : String(restartError);
+            console.error(`Failed to restart: ${message}`);
+          });
+        }, 1_000);
+      } else {
+        this.emit("crash", error);
+      }
+    });
+  }
+
+  private async detachProcess(child: ChildProcess, terminate: boolean): Promise<void> {
+    if (this.process !== child) return;
     if (this.readline) {
       this.readline.removeAllListeners();
       this.readline.close();
       this.readline = null;
     }
-
-    const old = this.process;
-    if (old) {
-      old.stdout?.removeAllListeners();
-      old.stderr?.removeAllListeners();
-      old.removeAllListeners();
-      if (!old.killed) {
-        old.kill();
-      }
-      this.process = null;
+    child.stdout?.removeAllListeners();
+    child.stderr?.removeAllListeners();
+    child.stdin?.removeAllListeners();
+    child.removeAllListeners();
+    this.process = null;
+    if (
+      terminate
+      && child.exitCode === null
+      && child.signalCode === null
+    ) {
+      await this.gradleLauncher.stop(child);
     }
   }
 
-  /**
-   * Handle crash with auto-restart
-   */
-  private async handleCrash(error: Error): Promise<void> {
-    this.state.status = "crashed";
-    this.state.crashCount++;
-    this.state.lastError = error.message;
-
-    // Reject all pending requests
-    for (const [id, pending] of this.pendingRequests) {
+  private rejectPending(error: Error): void {
+    for (const pending of this.pendingRequests.values()) {
       clearTimeout(pending.timeout);
-      pending.reject(new Error("Desktop app crashed"));
+      pending.reject(error);
     }
     this.pendingRequests.clear();
-
-    // Detach the crashed process + its listeners/readline before respawning,
-    // otherwise the old handles linger until GC (M3).
-    this.detachProcess();
-
-    // Auto-restart if under limit
-    if (this.state.crashCount <= MAX_RESTARTS && this.lastLaunchOptions) {
-      console.error(
-        `Desktop app crashed, restarting (${this.state.crashCount}/${MAX_RESTARTS})...`
-      );
-
-      try {
-        await new Promise((resolve) => setTimeout(resolve, 1000)); // Wait before restart
-        await this.launch(this.lastLaunchOptions);
-      } catch (restartError: any) {
-        console.error(`Failed to restart: ${restartError.message}`);
-      }
-    } else {
-      this.emit("crash", error);
-    }
   }
 
   /**
    * Send JSON-RPC request
    */
   private async sendRequest<T>(method: string, params?: Record<string, unknown>): Promise<T> {
-    if (!this.isRunning() || !this.process?.stdin) {
+    const child = this.process;
+    const stdin = child?.stdin;
+    if (!this.isRunning() || !child || !stdin) {
       throw new Error("Desktop app is not running");
     }
 
@@ -417,19 +541,30 @@ export class DesktopClient extends EventEmitter {
     };
 
     return new Promise<T>((resolve, reject) => {
+      const fail = (error: Error) => {
+        const pending = this.pendingRequests.get(id);
+        if (!pending) return;
+        this.pendingRequests.delete(id);
+        clearTimeout(pending.timeout);
+        reject(error);
+      };
       const timeout = setTimeout(() => {
         this.pendingRequests.delete(id);
         reject(new Error(`Request timeout: ${method}`));
       }, DESKTOP.RPC_TIMEOUT_MS);
-
       this.pendingRequests.set(id, {
         resolve: resolve as (value: unknown) => void,
         reject,
         timeout,
       });
 
-      const json = JSON.stringify(request);
-      this.process!.stdin!.write(json + "\n");
+      try {
+        stdin.write(`${JSON.stringify(request)}\n`, (error) => {
+          if (error) fail(new Error(`Desktop request write failed: ${error.message}`));
+        });
+      } catch (error) {
+        fail(error instanceof Error ? error : new Error(String(error)));
+      }
     });
   }
 
