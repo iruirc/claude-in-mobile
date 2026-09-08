@@ -1,14 +1,14 @@
 //! Screenshot capture and compression
 
-use std::io::Cursor;
-use anyhow::{Result, Context};
-use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
+use ab_glyph::{FontArc, PxScale};
+use anyhow::{Context, Result};
+use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
 use image::{DynamicImage, GenericImageView, Rgba, RgbaImage};
 use imageproc::drawing::{draw_hollow_rect_mut, draw_text_mut};
 use imageproc::rect::Rect;
-use ab_glyph::{FontArc, PxScale};
+use std::io::Cursor;
 
-use crate::{android, ios};
+use crate::{android, harmony, ios};
 
 /// Take screenshot with optional compression
 pub fn take_screenshot(
@@ -42,7 +42,11 @@ pub fn take_screenshot(
         // Output as base64 for LLM consumption
         let b64 = BASE64.encode(&final_data);
         println!("{}", b64);
-        eprintln!("Screenshot: {} bytes (base64: {} chars)", final_data.len(), b64.len());
+        eprintln!(
+            "Screenshot: {} bytes (base64: {} chars)",
+            final_data.len(),
+            b64.len()
+        );
     }
 
     Ok(())
@@ -73,9 +77,19 @@ fn compress_image(png_data: &[u8], max_width: u32, quality: u8) -> Result<Vec<u8
     let encoder = image::codecs::jpeg::JpegEncoder::new_with_quality(&mut cursor, quality);
     img.write_with_encoder(encoder)?;
 
-    eprintln!("Compressed: {} bytes ({}% of original)", jpeg_data.len(), jpeg_data.len() * 100 / png_data.len());
+    eprintln!(
+        "Compressed: {} bytes ({}% of original)",
+        jpeg_data.len(),
+        jpeg_data.len() * 100 / png_data.len()
+    );
 
     Ok(jpeg_data)
+}
+
+struct AnnotationElement {
+    bounds: (i32, i32, i32, i32),
+    clickable: bool,
+    label: String,
 }
 
 /// Take annotated screenshot with UI element bounds drawn
@@ -85,19 +99,33 @@ pub fn take_annotated_screenshot(
     device: Option<&str>,
     simulator: Option<&str>,
 ) -> Result<()> {
-    // Get screenshot
-    let png_data = if platform == "android" {
-        android::screenshot(device)?
-    } else {
-        ios::screenshot(simulator)?
+    // Get screenshot and the platform accessibility bounds.
+    let png_data = match platform {
+        "android" => android::screenshot(device)?,
+        "harmony" => harmony::screenshot(device)?,
+        _ => ios::screenshot(simulator)?,
     };
-
-    // Get UI elements (Android only for now)
-    let elements = if platform == "android" {
-        android::get_ui_elements(device)?
-    } else {
-        eprintln!("Note: Annotated screenshot is only fully supported on Android");
-        vec![]
+    let elements = match platform {
+        "android" => android::get_ui_elements(device)?
+            .into_iter()
+            .map(|element| AnnotationElement {
+                bounds: element.bounds,
+                clickable: element.clickable,
+                label: element.label(),
+            })
+            .collect::<Vec<_>>(),
+        "harmony" => harmony::get_ui_elements(device)?
+            .into_iter()
+            .map(|element| AnnotationElement {
+                bounds: element.bounds,
+                clickable: element.clickable,
+                label: element.label().to_owned(),
+            })
+            .collect::<Vec<_>>(),
+        _ => {
+            eprintln!("Note: Annotated screenshot element bounds are unavailable on iOS");
+            Vec::new()
+        }
     };
 
     // Load image
@@ -134,7 +162,15 @@ pub fn take_annotated_screenshot(
 
         // Draw number label
         let label = format!("{}", i + 1);
-        draw_text_mut(&mut rgba_img, color, x1, y1.saturating_sub(20), scale, &font, &label);
+        draw_text_mut(
+            &mut rgba_img,
+            color,
+            x1,
+            y1.saturating_sub(20),
+            scale,
+            &font,
+            &label,
+        );
     }
 
     // Convert back to bytes
@@ -145,7 +181,11 @@ pub fn take_annotated_screenshot(
     // Output
     if let Some(path) = output {
         std::fs::write(path, &output_data)?;
-        eprintln!("Annotated screenshot saved to: {} ({} bytes)", path, output_data.len());
+        eprintln!(
+            "Annotated screenshot saved to: {} ({} bytes)",
+            path,
+            output_data.len()
+        );
     } else {
         let b64 = BASE64.encode(&output_data);
         println!("{}", b64);
@@ -154,9 +194,16 @@ pub fn take_annotated_screenshot(
 
     // Print element index
     eprintln!("\nElements:");
-    for (i, elem) in elements.iter().enumerate() {
-        let (cx, cy) = elem.center();
-        eprintln!("  {}: {} @ ({}, {})", i + 1, elem.label(), cx, cy);
+    for (i, element) in elements.iter().enumerate() {
+        let (x1, y1, x2, y2) = element.bounds;
+        let center = ((x1 + x2) / 2, (y1 + y2) / 2);
+        eprintln!(
+            "  {}: {} @ ({}, {})",
+            i + 1,
+            element.label,
+            center.0,
+            center.1
+        );
     }
 
     Ok(())

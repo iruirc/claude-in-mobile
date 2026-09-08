@@ -6,15 +6,47 @@ use std::ffi::OsStr;
 use std::fs;
 use std::path::PathBuf;
 use std::process::{Command, Output};
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use anyhow::{bail, Context, Result};
 use serde::Serialize;
+use serde_json::{Map, Value};
 
 #[derive(Debug, Clone, Serialize)]
 pub struct HarmonyDevice {
     pub serial: String,
     pub state: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct HarmonyElement {
+    pub class: String,
+    pub text: String,
+    pub resource_id: String,
+    pub content_desc: String,
+    pub bounds: (i32, i32, i32, i32),
+    pub clickable: bool,
+}
+
+impl HarmonyElement {
+    pub fn center(&self) -> (i32, i32) {
+        (
+            (self.bounds.0 + self.bounds.2) / 2,
+            (self.bounds.1 + self.bounds.3) / 2,
+        )
+    }
+
+    pub fn label(&self) -> &str {
+        if !self.text.is_empty() {
+            &self.text
+        } else if !self.content_desc.is_empty() {
+            &self.content_desc
+        } else if !self.resource_id.is_empty() {
+            &self.resource_id
+        } else {
+            &self.class
+        }
+    }
 }
 
 fn hdc_binary() -> PathBuf {
@@ -135,6 +167,138 @@ fn parse_devices(output: &str) -> Vec<HarmonyDevice> {
     devices
 }
 
+fn json_string(object: &Map<String, Value>, keys: &[&str]) -> String {
+    for key in keys {
+        let Some(value) = object.get(*key) else {
+            continue;
+        };
+        match value {
+            Value::String(value) if !value.is_empty() => return value.clone(),
+            Value::Number(value) => return value.to_string(),
+            Value::Bool(value) => return value.to_string(),
+            _ => {}
+        }
+    }
+    String::new()
+}
+
+fn json_bool(object: &Map<String, Value>, key: &str) -> bool {
+    match object.get(key) {
+        Some(Value::Bool(value)) => *value,
+        Some(Value::String(value)) => value == "true" || value == "1",
+        Some(Value::Number(value)) => value.as_u64() == Some(1),
+        _ => false,
+    }
+}
+
+fn json_i32(value: Option<&Value>) -> Option<i32> {
+    match value {
+        Some(Value::Number(value)) => value.as_i64().and_then(|value| i32::try_from(value).ok()),
+        Some(Value::String(value)) => value.parse().ok(),
+        _ => None,
+    }
+}
+
+fn parse_bounds(value: Option<&Value>) -> Option<(i32, i32, i32, i32)> {
+    match value {
+        Some(Value::String(value)) => {
+            let numbers = value
+                .split(|character: char| !character.is_ascii_digit() && character != '-')
+                .filter(|part| !part.is_empty())
+                .filter_map(|part| part.parse::<i32>().ok())
+                .collect::<Vec<_>>();
+            (numbers.len() == 4).then(|| (numbers[0], numbers[1], numbers[2], numbers[3]))
+        }
+        Some(Value::Object(object)) => {
+            let x1 = json_i32(
+                object
+                    .get("left")
+                    .or_else(|| object.get("x1"))
+                    .or_else(|| object.get("x")),
+            )?;
+            let y1 = json_i32(
+                object
+                    .get("top")
+                    .or_else(|| object.get("y1"))
+                    .or_else(|| object.get("y")),
+            )?;
+            let x2 = json_i32(object.get("right").or_else(|| object.get("x2")))
+                .or_else(|| json_i32(object.get("width")).map(|width| x1 + width))?;
+            let y2 = json_i32(object.get("bottom").or_else(|| object.get("y2")))
+                .or_else(|| json_i32(object.get("height")).map(|height| y1 + height))?;
+            Some((x1, y1, x2, y2))
+        }
+        _ => None,
+    }
+}
+
+fn collect_ui_elements(value: &Value, elements: &mut Vec<HarmonyElement>) {
+    match value {
+        Value::Array(values) => {
+            for value in values {
+                collect_ui_elements(value, elements);
+            }
+        }
+        Value::Object(object) => {
+            let attributes = object
+                .get("attributes")
+                .and_then(Value::as_object)
+                .unwrap_or(object);
+            let is_node = object
+                .get("attributes")
+                .and_then(Value::as_object)
+                .is_some()
+                || attributes.contains_key("bounds")
+                || attributes.contains_key("type")
+                || attributes.contains_key("id");
+            if is_node {
+                if let Some(bounds) =
+                    parse_bounds(attributes.get("bounds").or_else(|| object.get("bounds")))
+                {
+                    let element = HarmonyElement {
+                        class: json_string(attributes, &["type", "className", "role"]),
+                        text: json_string(attributes, &["text", "content", "value"]),
+                        resource_id: json_string(
+                            attributes,
+                            &["id", "resourceId", "accessibilityId"],
+                        ),
+                        content_desc: json_string(
+                            attributes,
+                            &["description", "hint", "accessibilityText"],
+                        ),
+                        bounds,
+                        clickable: json_bool(attributes, "clickable"),
+                    };
+                    if bounds.2 > bounds.0 && bounds.3 > bounds.1 {
+                        elements.push(element);
+                    }
+                }
+            }
+
+            let mut found_children = false;
+            for key in ["children", "child", "nodes", "windows"] {
+                if let Some(child) = object.get(key) {
+                    found_children = true;
+                    collect_ui_elements(child, elements);
+                }
+            }
+            if !is_node && !found_children {
+                for child in object.values() {
+                    collect_ui_elements(child, elements);
+                }
+            }
+        }
+        _ => {}
+    }
+}
+
+fn parse_ui_elements(json: &str) -> Result<Vec<HarmonyElement>> {
+    let root: Value = serde_json::from_str(json).context("HarmonyOS UI dump is not valid JSON")?;
+    let mut elements = Vec::new();
+    collect_ui_elements(&root, &mut elements);
+    Ok(elements)
+}
+
 pub fn list_devices() -> Result<Vec<HarmonyDevice>> {
     let output = execute(None, ["list", "targets", "-v"], "list devices")?;
     Ok(parse_devices(&output))
@@ -221,7 +385,7 @@ pub fn swipe(
 pub fn input_text(text: &str, device: Option<&str>) -> Result<()> {
     execute(
         device,
-        ["shell", "uitest", "uiInput", "inputText", "1", text],
+        ["shell", "uitest", "uiInput", "text", text],
         "input text",
     )?;
     Ok(())
@@ -263,6 +427,79 @@ pub fn ui_dump(format: &str, device: Option<&str>) -> Result<String> {
         &["shell", "uitest", "dumpLayout", "-p"],
     )?;
     String::from_utf8(bytes).context("HarmonyOS UI dump is not valid UTF-8")
+}
+
+pub fn get_ui_elements(device: Option<&str>) -> Result<Vec<HarmonyElement>> {
+    parse_ui_elements(&ui_dump("json", device)?)
+}
+
+pub fn find_element(query: &str, device: Option<&str>) -> Result<Option<(i32, i32)>> {
+    let query = query.to_lowercase();
+    let found = get_ui_elements(device)?.into_iter().find(|element| {
+        element.text.to_lowercase().contains(&query)
+            || element.resource_id.to_lowercase().contains(&query)
+            || element.content_desc.to_lowercase().contains(&query)
+    });
+    if let Some(element) = found {
+        let center = element.center();
+        println!(
+            "Found: text=\"{}\" resource_id=\"{}\" content_desc=\"{}\" at ({}, {})",
+            element.text, element.resource_id, element.content_desc, center.0, center.1
+        );
+        Ok(Some(center))
+    } else {
+        println!("Element with '{query}' not found");
+        Ok(None)
+    }
+}
+
+pub fn find_ui_element(
+    text: Option<&str>,
+    resource_id: Option<&str>,
+    class_name: Option<&str>,
+    device: Option<&str>,
+) -> Result<Option<String>> {
+    let text = text.map(str::to_lowercase);
+    let resource_id = resource_id.map(str::to_lowercase);
+    let class_name = class_name.map(str::to_lowercase);
+
+    let found = get_ui_elements(device)?.into_iter().find(|element| {
+        text.as_ref().is_none_or(|query| {
+            element.text.to_lowercase().contains(query)
+                || element.content_desc.to_lowercase().contains(query)
+        }) && resource_id
+            .as_ref()
+            .is_none_or(|query| element.resource_id.to_lowercase().contains(query))
+            && class_name
+                .as_ref()
+                .is_none_or(|query| element.class.to_lowercase().contains(query))
+    });
+
+    Ok(found.map(|element| {
+        let center = element.center();
+        format!(
+            "type=\"{}\" label=\"{}\" resource_id=\"{}\" at ({}, {})",
+            element.class,
+            element.label(),
+            element.resource_id,
+            center.0,
+            center.1
+        )
+    }))
+}
+
+pub fn tap_element(query: &str, device: Option<&str>) -> Result<()> {
+    let Some((x, y)) = find_element(query, device)? else {
+        bail!("Element '{query}' not found");
+    };
+    tap(x, y, device)
+}
+
+pub fn screen_size(device: Option<&str>) -> Result<(u32, u32)> {
+    let data = screenshot(device)?;
+    let image =
+        image::load_from_memory(&data).context("HarmonyOS screenshot is not a valid image")?;
+    Ok((image.width(), image.height()))
 }
 
 pub fn shell(command: &str, device: Option<&str>) -> Result<String> {
@@ -406,6 +643,344 @@ pub fn system_info(device: Option<&str>) -> Result<()> {
     print!("{output}");
     Ok(())
 }
+fn token_id(bundle: &str, device: Option<&str>) -> Result<String> {
+    checked_identifier(bundle, "bundle name")?;
+    let output = execute(
+        device,
+        ["shell", "atm", "dump", "-t", "-b", bundle],
+        "query access token",
+    )?;
+    let marker = output
+        .find("\"tokenId\"")
+        .or_else(|| output.find("tokenId"))
+        .context("ATM response did not contain tokenId")?;
+    let token = output[marker..]
+        .chars()
+        .skip_while(|character| !character.is_ascii_digit())
+        .take_while(char::is_ascii_digit)
+        .collect::<String>();
+    if token.is_empty() {
+        bail!("ATM response contained an invalid tokenId");
+    }
+    Ok(token)
+}
+
+pub fn permission_grant(bundle: &str, permission: &str, device: Option<&str>) -> Result<()> {
+    checked_identifier(permission, "permission name")?;
+    let token = token_id(bundle, device)?;
+    execute(
+        device,
+        ["shell", "atm", "perm", "-g", "-i", &token, "-p", permission],
+        "grant permission",
+    )?;
+    println!("Granted {permission} to {bundle}");
+    Ok(())
+}
+
+pub fn permission_revoke(bundle: &str, permission: &str, device: Option<&str>) -> Result<()> {
+    checked_identifier(permission, "permission name")?;
+    let token = token_id(bundle, device)?;
+    execute(
+        device,
+        ["shell", "atm", "perm", "-c", "-i", &token, "-p", permission],
+        "revoke permission",
+    )?;
+    println!("Revoked {permission} from {bundle}");
+    Ok(())
+}
+
+fn granted_permissions(output: &str) -> Vec<String> {
+    let Ok(root) = serde_json::from_str::<Value>(output) else {
+        return Vec::new();
+    };
+    root.get("permStateList")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(Value::as_object)
+        .filter(|permission| json_i32(permission.get("grantStatus")) == Some(0))
+        .map(|permission| json_string(permission, &["permissionName"]))
+        .filter(|permission| !permission.is_empty())
+        .collect()
+}
+
+pub fn permission_reset(bundle: &str, device: Option<&str>) -> Result<()> {
+    let token = token_id(bundle, device)?;
+    let output = execute(
+        device,
+        ["shell", "atm", "dump", "-t", "-i", &token],
+        "query granted permissions",
+    )?;
+    let permissions = granted_permissions(&output);
+    let mut failures = Vec::new();
+    let mut revoked = 0usize;
+    for permission in permissions {
+        match execute(
+            device,
+            [
+                "shell",
+                "atm",
+                "perm",
+                "-c",
+                "-i",
+                &token,
+                "-p",
+                &permission,
+            ],
+            "reset permission",
+        ) {
+            Ok(_) => revoked += 1,
+            Err(error) => failures.push(format!("{permission}: {error}")),
+        }
+    }
+    if !failures.is_empty() {
+        bail!(
+            "Reset permissions for {bundle} revoked {revoked}, but {} failed: {}",
+            failures.len(),
+            failures.join("; ")
+        );
+    }
+    println!("Reset {revoked} granted permissions for {bundle}");
+    Ok(())
+}
+
+fn checked_sandbox_path<'a>(path: &'a str, label: &str) -> Result<&'a str> {
+    let valid = !path.is_empty()
+        && path.split('/').all(|part| {
+            part != ".."
+                && part.chars().all(|character| {
+                    character.is_ascii_alphanumeric() || matches!(character, '_' | '.' | '-')
+                })
+        });
+    if valid {
+        Ok(path)
+    } else {
+        bail!("invalid HarmonyOS sandbox {label}: {path}")
+    }
+}
+
+pub fn sandbox_file_list(bundle: &str, path: Option<&str>, device: Option<&str>) -> Result<()> {
+    checked_identifier(bundle, "bundle name")?;
+    let path = checked_sandbox_path(path.unwrap_or("."), "path")?;
+    let output = execute(
+        device,
+        ["shell", "-b", bundle, "ls", "-la", path],
+        "list sandbox files",
+    )?;
+    print!("{output}");
+    Ok(())
+}
+
+pub fn sandbox_file_read(
+    bundle: &str,
+    path: &str,
+    max_bytes: Option<u64>,
+    device: Option<&str>,
+) -> Result<()> {
+    checked_identifier(bundle, "bundle name")?;
+    let path = checked_sandbox_path(path, "path")?;
+    let output = execute(
+        device,
+        ["shell", "-b", bundle, "cat", path],
+        "read sandbox file",
+    )?;
+    let bytes = output.as_bytes();
+    let limit = max_bytes
+        .and_then(|limit| usize::try_from(limit).ok())
+        .map_or(bytes.len(), |limit| limit.min(bytes.len()));
+    print!("{}", String::from_utf8_lossy(&bytes[..limit]));
+    Ok(())
+}
+
+pub fn sandbox_file_push(
+    bundle: &str,
+    local: &str,
+    remote: &str,
+    device: Option<&str>,
+) -> Result<()> {
+    checked_identifier(bundle, "bundle name")?;
+    let remote = checked_sandbox_path(remote, "destination")?;
+    execute(
+        device,
+        ["file", "send", "-b", bundle, local, remote],
+        "push sandbox file",
+    )?;
+    Ok(())
+}
+
+pub fn sandbox_file_pull(
+    bundle: &str,
+    remote: &str,
+    local: &str,
+    device: Option<&str>,
+) -> Result<()> {
+    checked_identifier(bundle, "bundle name")?;
+    let remote = checked_sandbox_path(remote, "source")?;
+    execute(
+        device,
+        ["file", "recv", "-b", bundle, remote, local],
+        "pull sandbox file",
+    )?;
+    Ok(())
+}
+
+fn checked_arkweb_socket(socket: &str) -> Result<&str> {
+    let valid = socket.starts_with("webview_devtools_remote_")
+        && socket.chars().all(|character| {
+            character.is_ascii_alphanumeric() || matches!(character, '_' | '.' | '-')
+        });
+    if valid {
+        Ok(socket)
+    } else {
+        bail!("invalid ArkWeb DevTools socket: {socket}")
+    }
+}
+
+pub fn arkweb_sockets(device: Option<&str>) -> Result<Vec<String>> {
+    let output = execute(
+        device,
+        ["shell", "cat", "/proc/net/unix"],
+        "discover ArkWeb DevTools sockets",
+    )?;
+    let sockets = output
+        .lines()
+        .filter_map(|line| line.split_whitespace().last())
+        .map(|socket| socket.trim_start_matches('@'))
+        .filter(|socket| socket.starts_with("webview_devtools_remote_"))
+        .filter(|socket| checked_arkweb_socket(socket).is_ok())
+        .map(str::to_owned)
+        .collect::<BTreeSet<_>>();
+    Ok(sockets.into_iter().collect())
+}
+
+pub fn arkweb_inspect(socket: Option<&str>, port: u16, device: Option<&str>) -> Result<()> {
+    let socket = match socket {
+        Some(socket) => checked_arkweb_socket(socket)?.to_owned(),
+        None => arkweb_sockets(device)?
+            .into_iter()
+            .next()
+            .context("No ArkWeb DevTools socket found. Enable setWebDebuggingAccess(true).")?,
+    };
+    execute(
+        device,
+        [
+            "fport",
+            &format!("tcp:{port}"),
+            &format!("localabstract:{socket}"),
+        ],
+        "forward ArkWeb DevTools socket",
+    )?;
+    let url = format!("http://127.0.0.1:{port}/json/list");
+    let targets = reqwest::blocking::Client::builder()
+        .timeout(Duration::from_secs(5))
+        .build()
+        .context("failed to create ArkWeb HTTP client")
+        .and_then(|client| {
+            client
+                .get(&url)
+                .send()
+                .with_context(|| format!("failed to query ArkWeb DevTools at {url}"))
+        })
+        .and_then(|response| {
+            response
+                .error_for_status()
+                .with_context(|| format!("ArkWeb DevTools returned an error at {url}"))
+        })
+        .and_then(|response| {
+            response
+                .text()
+                .context("failed to read ArkWeb DevTools response")
+        });
+    match targets {
+        Ok(targets) => {
+            println!("{targets}");
+            Ok(())
+        }
+        Err(error) => {
+            if let Err(cleanup_error) = arkweb_close(&socket, port, device) {
+                bail!("{error}; additionally failed to remove ArkWeb forwarding: {cleanup_error}");
+            }
+            Err(error)
+        }
+    }
+}
+
+pub fn arkweb_close(socket: &str, port: u16, device: Option<&str>) -> Result<()> {
+    let socket = checked_arkweb_socket(socket)?;
+    execute(
+        device,
+        [
+            "fport",
+            "rm",
+            &format!("tcp:{port}"),
+            &format!("localabstract:{socket}"),
+        ],
+        "remove ArkWeb DevTools forwarding",
+    )?;
+    Ok(())
+}
+
+fn checked_test_filter<'a>(filter: &'a str, label: &str) -> Result<&'a str> {
+    if !filter.is_empty()
+        && filter.chars().all(|character| {
+            character.is_ascii_alphanumeric() || matches!(character, '_' | '.' | '-' | '#' | ',')
+        })
+    {
+        Ok(filter)
+    } else {
+        bail!("invalid HarmonyOS test {label}: {filter}")
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+pub fn run_tests(
+    bundle: &str,
+    module: &str,
+    runner: &str,
+    class: Option<&str>,
+    not_class: Option<&str>,
+    timeout_ms: Option<u64>,
+    dry_run: bool,
+    device: Option<&str>,
+) -> Result<()> {
+    checked_identifier(bundle, "bundle name")?;
+    checked_identifier(module, "module name")?;
+    let runner = checked_sandbox_path(runner, "test runner")?;
+    let mut args = vec![
+        "shell".to_owned(),
+        "aa".to_owned(),
+        "test".to_owned(),
+        "-b".to_owned(),
+        bundle.to_owned(),
+        "-m".to_owned(),
+        module.to_owned(),
+        "-s".to_owned(),
+        "unittest".to_owned(),
+        runner.to_owned(),
+    ];
+    for (name, value) in [("class", class), ("notClass", not_class)] {
+        if let Some(value) = value {
+            args.extend([
+                "-s".to_owned(),
+                name.to_owned(),
+                checked_test_filter(value, name)?.to_owned(),
+            ]);
+        }
+    }
+    if let Some(timeout_ms) = timeout_ms {
+        args.extend([
+            "-s".to_owned(),
+            "timeout".to_owned(),
+            timeout_ms.to_string(),
+        ]);
+    }
+    if dry_run {
+        args.extend(["-s".to_owned(), "dryRun".to_owned(), "true".to_owned()]);
+    }
+    let output = execute(device, args, "run HarmonyOS tests")?;
+    print!("{output}");
+    Ok(())
+}
 
 #[cfg(test)]
 mod tests {
@@ -433,5 +1008,37 @@ mod tests {
         assert!(valid_identifier("EntryAbility"));
         assert!(!valid_identifier("com.example;rm"));
         assert!(!valid_identifier("1invalid"));
+    }
+
+    #[test]
+    fn parses_harmony_layout_and_finds_granted_permissions() {
+        let layout = r#"{
+          "attributes": {"type":"Column","bounds":"[0,0][100,200]"},
+          "children":[{"attributes":{
+            "type":"Button","text":"Continue","id":"confirm",
+            "description":"Continue setup","clickable":"true",
+            "bounds":"[20,40][80,100]"
+          }}]
+        }"#;
+        let elements = parse_ui_elements(layout).unwrap();
+        assert_eq!(elements.len(), 2);
+        assert_eq!(elements[1].center(), (50, 70));
+        assert_eq!(elements[1].label(), "Continue");
+
+        let permissions = granted_permissions(
+            r#"{"permStateList":[
+              {"permissionName":"ohos.permission.CAMERA","grantStatus":0},
+              {"permissionName":"ohos.permission.LOCATION","grantStatus":-1}
+            ]}"#,
+        );
+        assert_eq!(permissions, vec!["ohos.permission.CAMERA"]);
+    }
+
+    #[test]
+    fn rejects_unsafe_sandbox_paths_and_arkweb_sockets() {
+        assert!(checked_sandbox_path("data/storage/el2/base/files", "path").is_ok());
+        assert!(checked_sandbox_path("../system", "path").is_err());
+        assert!(checked_arkweb_socket("webview_devtools_remote_38532").is_ok());
+        assert!(checked_arkweb_socket("webview_devtools_remote_1;rm").is_err());
     }
 }

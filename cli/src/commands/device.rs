@@ -32,7 +32,9 @@ pub fn screenshot(
         let data = harmony::screenshot(device)?;
         return write_or_base64(output, &data);
     }
-    screenshot::take_screenshot(platform, output, compress, max_width, quality, simulator, device)
+    screenshot::take_screenshot(
+        platform, output, compress, max_width, quality, simulator, device,
+    )
 }
 
 pub fn annotate(
@@ -57,13 +59,12 @@ pub fn tap(
     from_size: Option<&str>,
 ) -> Result<()> {
     if let Some(text) = text {
-        if platform == "desktop" {
-            return desktop::tap_by_text(text, companion_path);
-        }
-        if platform == "harmony" {
-            bail!("HarmonyOS tap requires --x and --y; --text is not supported");
-        }
-        return android::tap_element(text, device);
+        return match platform {
+            "desktop" => desktop::tap_by_text(text, companion_path),
+            "harmony" => harmony::tap_element(text, device),
+            "android" => android::tap_element(text, device),
+            _ => bail!("Tap by text is not supported for {platform}"),
+        };
     }
     let (x, y) = scale::apply_scale(x, y, from_size, platform, device, simulator)?;
     match platform {
@@ -87,12 +88,15 @@ pub fn long_press(
 ) -> Result<()> {
     if let Some(text) = text {
         if platform == "harmony" {
-            bail!("HarmonyOS long-press requires --x and --y; --text is not supported");
+            if let Some((x, y)) = harmony::find_element(text, device)? {
+                return harmony::long_press(x, y, duration.into(), device);
+            }
+            bail!("Element '{text}' not found for long press");
         }
         if let Some((x, y)) = android::find_element(text, device)? {
             return android::long_press(x, y, duration, device);
         }
-        bail!("Element '{}' not found for long press", text);
+        bail!("Element '{text}' not found for long press");
     }
     match platform {
         "android" => android::long_press(x, y, duration, device),
@@ -162,10 +166,30 @@ pub fn swipe(
         let (center_x, center_y) = (540, 960);
         let distance = 400;
         match direction.to_lowercase().as_str() {
-            "up" => { x1 = center_x; y1 = center_y + distance; x2 = center_x; y2 = center_y - distance; }
-            "down" => { x1 = center_x; y1 = center_y - distance; x2 = center_x; y2 = center_y + distance; }
-            "left" => { x1 = center_x + distance; y1 = center_y; x2 = center_x - distance; y2 = center_y; }
-            "right" => { x1 = center_x - distance; y1 = center_y; x2 = center_x + distance; y2 = center_y; }
+            "up" => {
+                x1 = center_x;
+                y1 = center_y + distance;
+                x2 = center_x;
+                y2 = center_y - distance;
+            }
+            "down" => {
+                x1 = center_x;
+                y1 = center_y - distance;
+                x2 = center_x;
+                y2 = center_y + distance;
+            }
+            "left" => {
+                x1 = center_x + distance;
+                y1 = center_y;
+                x2 = center_x - distance;
+                y2 = center_y;
+            }
+            "right" => {
+                x1 = center_x - distance;
+                y1 = center_y;
+                x2 = center_x + distance;
+                y2 = center_y;
+            }
             _ => {}
         }
     }
@@ -342,10 +366,17 @@ pub fn find(
     simulator: Option<&str>,
     device: Option<&str>,
 ) -> Result<()> {
-    if platform == "android" {
-        android::find_element(query, device)?;
-    } else {
-        ios::find_element(query, simulator)?;
+    match platform {
+        "android" => {
+            android::find_element(query, device)?;
+        }
+        "ios" => {
+            ios::find_element(query, simulator)?;
+        }
+        "harmony" => {
+            harmony::find_element(query, device)?;
+        }
+        _ => bail!("Unsupported platform for find: {platform}"),
     }
     Ok(())
 }
@@ -356,10 +387,11 @@ pub fn tap_text(
     simulator: Option<&str>,
     device: Option<&str>,
 ) -> Result<()> {
-    if platform == "android" {
-        android::tap_element(query, device)
-    } else {
-        ios::tap_element(query, simulator)
+    match platform {
+        "android" => android::tap_element(query, device),
+        "ios" => ios::tap_element(query, simulator),
+        "harmony" => harmony::tap_element(query, device),
+        _ => bail!("Unsupported platform for tap-text: {platform}"),
     }
 }
 
@@ -381,11 +413,7 @@ pub fn logs(
     }
 }
 
-pub fn clear_logs(
-    platform: &str,
-    simulator: Option<&str>,
-    device: Option<&str>,
-) -> Result<()> {
+pub fn clear_logs(platform: &str, simulator: Option<&str>, device: Option<&str>) -> Result<()> {
     match platform {
         "android" => android::clear_logs(device),
         "ios" => ios::clear_logs(simulator),
@@ -397,11 +425,7 @@ pub fn clear_logs(
 
 // -- System -------------------------------------------------------------------
 
-pub fn system_info(
-    platform: &str,
-    simulator: Option<&str>,
-    device: Option<&str>,
-) -> Result<()> {
+pub fn system_info(platform: &str, simulator: Option<&str>, device: Option<&str>) -> Result<()> {
     match platform {
         "android" => android::get_system_info(device),
         "ios" => ios::get_system_info(simulator),
@@ -423,11 +447,7 @@ pub fn current_activity(
     }
 }
 
-pub fn reboot(
-    platform: &str,
-    simulator: Option<&str>,
-    device: Option<&str>,
-) -> Result<()> {
+pub fn reboot(platform: &str, simulator: Option<&str>, device: Option<&str>) -> Result<()> {
     if platform == "android" {
         android::reboot(device)
     } else {
@@ -440,21 +460,19 @@ pub fn screen(state: &str, device: Option<&str>) -> Result<()> {
     android::screen_power(on, device)
 }
 
-pub fn screen_size(
-    platform: &str,
-    simulator: Option<&str>,
-    device: Option<&str>,
-) -> Result<()> {
-    if platform == "android" {
-        let (w, h) = android::get_screen_size(device)?;
-        println!("Screen size: {}x{}", w, h);
-        Ok(())
-    } else {
-        let data = ios::screenshot(simulator)?;
-        let img = image::load_from_memory(&data)?;
-        println!("Screen size: {}x{}", img.width(), img.height());
-        Ok(())
-    }
+pub fn screen_size(platform: &str, simulator: Option<&str>, device: Option<&str>) -> Result<()> {
+    let (width, height) = match platform {
+        "android" => android::get_screen_size(device)?,
+        "ios" => {
+            let data = ios::screenshot(simulator)?;
+            let image = image::load_from_memory(&data)?;
+            (image.width(), image.height())
+        }
+        "harmony" => harmony::screen_size(device)?,
+        _ => bail!("Unsupported platform for screen-size: {platform}"),
+    };
+    println!("Screen size: {width}x{height}");
+    Ok(())
 }
 
 pub fn wait(ms: u64) -> Result<()> {
@@ -483,12 +501,12 @@ pub fn ui_wait(
     use std::time::Instant;
 
     let deadline = Instant::now() + std::time::Duration::from_millis(timeout_ms);
-
     loop {
-        let found = if platform == "android" {
-            android::find_ui_element(text, resource_id, class_name, device)?
-        } else {
-            ios::find_ui_element(text, resource_id, simulator)?
+        let found = match platform {
+            "android" => android::find_ui_element(text, resource_id, class_name, device)?,
+            "ios" => ios::find_ui_element(text, resource_id, simulator)?,
+            "harmony" => harmony::find_ui_element(text, resource_id, class_name, device)?,
+            _ => bail!("Unsupported platform for ui-wait: {platform}"),
         };
 
         if let Some(elem_desc) = found {
@@ -498,7 +516,11 @@ pub fn ui_wait(
 
         if Instant::now() >= deadline {
             let query = build_query_description(text, resource_id, class_name);
-            anyhow::bail!("Timeout: element {} not found within {}ms", query, timeout_ms);
+            anyhow::bail!(
+                "Timeout: element {} not found within {}ms",
+                query,
+                timeout_ms
+            );
         }
 
         std::thread::sleep(std::time::Duration::from_millis(interval_ms));
@@ -516,10 +538,11 @@ pub fn ui_assert_visible(
     simulator: Option<&str>,
     device: Option<&str>,
 ) -> Result<()> {
-    let found = if platform == "android" {
-        android::find_ui_element(text, resource_id, None, device)?
-    } else {
-        ios::find_ui_element(text, resource_id, simulator)?
+    let found = match platform {
+        "android" => android::find_ui_element(text, resource_id, None, device)?,
+        "ios" => ios::find_ui_element(text, resource_id, simulator)?,
+        "harmony" => harmony::find_ui_element(text, resource_id, None, device)?,
+        _ => bail!("Unsupported platform for ui-assert-visible: {platform}"),
     };
 
     match found {
@@ -545,10 +568,11 @@ pub fn ui_assert_gone(
     simulator: Option<&str>,
     device: Option<&str>,
 ) -> Result<()> {
-    let found = if platform == "android" {
-        android::find_ui_element(text, resource_id, None, device)?
-    } else {
-        ios::find_ui_element(text, resource_id, simulator)?
+    let found = match platform {
+        "android" => android::find_ui_element(text, resource_id, None, device)?,
+        "ios" => ios::find_ui_element(text, resource_id, simulator)?,
+        "harmony" => harmony::find_ui_element(text, resource_id, None, device)?,
+        _ => bail!("Unsupported platform for ui-assert-gone: {platform}"),
     };
 
     match found {
@@ -598,12 +622,7 @@ pub fn find_and_tap(description: &str, min_confidence: u32, device: Option<&str>
 
 // -- File transfer ------------------------------------------------------------
 
-pub fn push_file(
-    platform: &str,
-    local: &str,
-    remote: &str,
-    device: Option<&str>,
-) -> Result<()> {
+pub fn push_file(platform: &str, local: &str, remote: &str, device: Option<&str>) -> Result<()> {
     match platform {
         "android" => android::push_file(local, remote, device),
         "harmony" => harmony::push_file(local, remote, device),
@@ -612,12 +631,7 @@ pub fn push_file(
     }
 }
 
-pub fn pull_file(
-    platform: &str,
-    remote: &str,
-    local: &str,
-    device: Option<&str>,
-) -> Result<()> {
+pub fn pull_file(platform: &str, remote: &str, local: &str, device: Option<&str>) -> Result<()> {
     match platform {
         "android" => android::pull_file(remote, local, device),
         "harmony" => harmony::pull_file(remote, local, device),
@@ -742,7 +756,7 @@ pub fn network_airplane(enabled: bool, device: Option<&str>) -> Result<()> {
     android::network_airplane(enabled, device)
 }
 
-// -- Permission commands (Android + iOS) --------------------------------------
+// -- Permission commands (Android + iOS + HarmonyOS) --------------------------
 
 pub fn permission_grant(
     platform: &str,
@@ -753,6 +767,7 @@ pub fn permission_grant(
 ) -> Result<()> {
     match platform {
         "android" => android::permission_grant(package, permission, device),
+        "harmony" => harmony::permission_grant(package, permission, device),
         "ios" => {
             let sim = simulator.unwrap_or("booted");
             let output = std::process::Command::new("xcrun")
@@ -781,6 +796,7 @@ pub fn permission_revoke(
 ) -> Result<()> {
     match platform {
         "android" => android::permission_revoke(package, permission, device),
+        "harmony" => harmony::permission_revoke(package, permission, device),
         "ios" => {
             let sim = simulator.unwrap_or("booted");
             let output = std::process::Command::new("xcrun")
@@ -808,6 +824,7 @@ pub fn permission_reset(
 ) -> Result<()> {
     match platform {
         "android" => android::permission_reset(package, device),
+        "harmony" => harmony::permission_reset(package, device),
         "ios" => {
             let sim = simulator.unwrap_or("booted");
             let output = std::process::Command::new("xcrun")
@@ -840,7 +857,9 @@ pub fn intent_start(
     flags: Option<&str>,
     device: Option<&str>,
 ) -> Result<()> {
-    android::intent_start(action, component, data, category, package, extras, flags, device)
+    android::intent_start(
+        action, component, data, category, package, extras, flags, device,
+    )
 }
 
 pub fn intent_broadcast(
@@ -887,11 +906,7 @@ pub fn intent_services(package: Option<&str>, device: Option<&str>) -> Result<()
 
 // -- Sandbox commands (Android-only) ------------------------------------------
 
-pub fn sandbox_prefs_read(
-    package: &str,
-    file: Option<&str>,
-    device: Option<&str>,
-) -> Result<()> {
+pub fn sandbox_prefs_read(package: &str, file: Option<&str>, device: Option<&str>) -> Result<()> {
     android::sandbox_prefs_read(package, file, device)
 }
 
@@ -916,20 +931,80 @@ pub fn sandbox_sqlite_query(
 }
 
 pub fn sandbox_file_list(
+    platform: &str,
     package: &str,
     path: Option<&str>,
     device: Option<&str>,
 ) -> Result<()> {
-    android::sandbox_file_list(package, path, device)
+    match platform {
+        "android" => android::sandbox_file_list(package, path, device),
+        "harmony" => harmony::sandbox_file_list(package, path, device),
+        _ => bail!("Unsupported platform for sandbox-file-list: {}", platform),
+    }
 }
 
 pub fn sandbox_file_read(
+    platform: &str,
     package: &str,
     path: &str,
     max_bytes: Option<u64>,
     device: Option<&str>,
 ) -> Result<()> {
-    android::sandbox_file_read(package, path, max_bytes, device)
+    match platform {
+        "android" => android::sandbox_file_read(package, path, max_bytes, device),
+        "harmony" => harmony::sandbox_file_read(package, path, max_bytes, device),
+        _ => bail!("Unsupported platform for sandbox-file-read: {}", platform),
+    }
+}
+
+pub fn harmony_sandbox_push(
+    bundle: &str,
+    local: &str,
+    remote: &str,
+    device: Option<&str>,
+) -> Result<()> {
+    harmony::sandbox_file_push(bundle, local, remote, device)
+}
+
+pub fn harmony_sandbox_pull(
+    bundle: &str,
+    remote: &str,
+    local: &str,
+    device: Option<&str>,
+) -> Result<()> {
+    harmony::sandbox_file_pull(bundle, remote, local, device)
+}
+
+pub fn harmony_arkweb(
+    socket: Option<&str>,
+    port: u16,
+    close: bool,
+    device: Option<&str>,
+) -> Result<()> {
+    if close {
+        let Some(socket) = socket else {
+            bail!("--socket is required with --close");
+        };
+        harmony::arkweb_close(socket, port, device)
+    } else {
+        harmony::arkweb_inspect(socket, port, device)
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+pub fn harmony_test(
+    bundle: &str,
+    module: &str,
+    runner: &str,
+    class: Option<&str>,
+    not_class: Option<&str>,
+    timeout_ms: Option<u64>,
+    dry_run: bool,
+    device: Option<&str>,
+) -> Result<()> {
+    harmony::run_tests(
+        bundle, module, runner, class, not_class, timeout_ms, dry_run, device,
+    )
 }
 
 // -- Performance commands (Android-only) --------------------------------------
@@ -977,10 +1052,7 @@ fn write_or_base64(output: Option<&str>, data: &[u8]) -> Result<()> {
         std::fs::write(path, data)?;
         eprintln!("Screenshot saved to: {}", path);
     } else {
-        let b64 = base64::Engine::encode(
-            &base64::engine::general_purpose::STANDARD,
-            data,
-        );
+        let b64 = base64::Engine::encode(&base64::engine::general_purpose::STANDARD, data);
         println!("{}", b64);
     }
     Ok(())

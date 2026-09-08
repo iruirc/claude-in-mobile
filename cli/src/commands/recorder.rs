@@ -167,8 +167,13 @@ fn is_leap(y: u64) -> bool {
 #[allow(dead_code)]
 fn read_recording(name: &str) -> Result<RecordingState> {
     let path = recording_tmp_path(name);
-    let text = fs::read_to_string(&path)
-        .with_context(|| format!("No active recording for '{}' (expected {})", name, path.display()))?;
+    let text = fs::read_to_string(&path).with_context(|| {
+        format!(
+            "No active recording for '{}' (expected {})",
+            name,
+            path.display()
+        )
+    })?;
     serde_json::from_str(&text).context("Corrupt recording state")
 }
 
@@ -221,18 +226,21 @@ fn find_active_recording() -> Option<RecordingState> {
 /// Dispatch a [`RecorderCommands`] variant to its handler.
 pub fn run(command: RecorderCommands) -> Result<()> {
     match command {
-        RecorderCommands::Start { name, platform, description, tags } => {
-            cmd_start(&name, &platform, description.as_deref(), tags.as_deref())
-        }
+        RecorderCommands::Start {
+            name,
+            platform,
+            description,
+            tags,
+        } => cmd_start(&name, &platform, description.as_deref(), tags.as_deref()),
         RecorderCommands::Stop { discard } => cmd_stop(discard),
         RecorderCommands::Status => cmd_status(),
-        RecorderCommands::AddStep { action_name, args, label } => {
-            cmd_add_step(&action_name, args.as_deref(), label.as_deref())
-        }
+        RecorderCommands::AddStep {
+            action_name,
+            args,
+            label,
+        } => cmd_add_step(&action_name, args.as_deref(), label.as_deref()),
         RecorderCommands::RemoveStep { step_index } => cmd_remove_step(step_index),
-        RecorderCommands::List { platform, tag } => {
-            cmd_list(platform.as_deref(), tag.as_deref())
-        }
+        RecorderCommands::List { platform, tag } => cmd_list(platform.as_deref(), tag.as_deref()),
         RecorderCommands::Show { name, platform } => cmd_show(&name, &platform),
         RecorderCommands::Delete { name, platform } => cmd_delete(&name, &platform),
         RecorderCommands::Play {
@@ -256,9 +264,11 @@ pub fn run(command: RecorderCommands) -> Result<()> {
             to_step,
             dry_run,
         ),
-        RecorderCommands::Export { name, platform, format } => {
-            cmd_export(&name, &platform, &format)
-        }
+        RecorderCommands::Export {
+            name,
+            platform,
+            format,
+        } => cmd_export(&name, &platform, &format),
     }
 }
 
@@ -381,11 +391,7 @@ fn cmd_status() -> Result<()> {
 // recorder add-step
 // ---------------------------------------------------------------------------
 
-fn cmd_add_step(
-    action_name: &str,
-    args_json: Option<&str>,
-    label: Option<&str>,
-) -> Result<()> {
+fn cmd_add_step(action_name: &str, args_json: Option<&str>, label: Option<&str>) -> Result<()> {
     let mut state = find_active_recording()
         .ok_or_else(|| anyhow::anyhow!("No active recording. Start one with `recorder start`."))?;
 
@@ -407,12 +413,7 @@ fn cmd_add_step(
     });
 
     write_recording(&state)?;
-    println!(
-        "Step {} added: {} {:?}",
-        index + 1,
-        action_name,
-        args
-    );
+    println!("Step {} added: {} {:?}", index + 1, action_name, args);
     Ok(())
 }
 
@@ -421,8 +422,8 @@ fn cmd_add_step(
 // ---------------------------------------------------------------------------
 
 fn cmd_remove_step(step_index: usize) -> Result<()> {
-    let mut state = find_active_recording()
-        .ok_or_else(|| anyhow::anyhow!("No active recording."))?;
+    let mut state =
+        find_active_recording().ok_or_else(|| anyhow::anyhow!("No active recording."))?;
 
     if step_index == 0 || step_index > state.steps.len() {
         bail!(
@@ -478,7 +479,10 @@ fn cmd_list(platform: Option<&str>, tag: Option<&str>) -> Result<()> {
         if !dir.exists() {
             continue;
         }
-        for entry in fs::read_dir(&dir).context("Cannot read platform directory")?.flatten() {
+        for entry in fs::read_dir(&dir)
+            .context("Cannot read platform directory")?
+            .flatten()
+        {
             let file_name = entry.file_name();
             let file_str = file_name.to_string_lossy();
             if !file_str.ends_with(".json") {
@@ -536,8 +540,7 @@ fn cmd_delete(name: &str, platform: &str) -> Result<()> {
     if !path.exists() {
         bail!("Scenario '{}' not found for platform '{}'", name, platform);
     }
-    fs::remove_file(&path)
-        .with_context(|| format!("Cannot delete {}", path.display()))?;
+    fs::remove_file(&path).with_context(|| format!("Cannot delete {}", path.display()))?;
     println!("Deleted scenario '{}/{}'.", platform, name);
     Ok(())
 }
@@ -561,10 +564,16 @@ fn cmd_play(
     let scenario = read_scenario(platform, name)?;
 
     let from = from_step.unwrap_or(1).saturating_sub(1);
-    let to = to_step.unwrap_or(scenario.steps.len()).min(scenario.steps.len());
+    let to = to_step
+        .unwrap_or(scenario.steps.len())
+        .min(scenario.steps.len());
 
     if from >= to {
-        bail!("--from-step ({}) must be less than --to-step ({})", from + 1, to);
+        bail!(
+            "--from-step ({}) must be less than --to-step ({})",
+            from + 1,
+            to
+        );
     }
 
     let steps_to_run: Vec<&ScenarioStep> = scenario.steps[from..to].iter().collect();
@@ -596,7 +605,13 @@ fn cmd_play(
         }
 
         let step_label = step.label.as_deref().unwrap_or(&step.action);
-        print!("  Step {}/{}: {} {:?} … ", i + 1, steps_to_run.len(), step_label, step.args);
+        print!(
+            "  Step {}/{}: {} {:?} … ",
+            i + 1,
+            steps_to_run.len(),
+            step_label,
+            step.args
+        );
 
         if dry_run {
             println!("[dry-run]");
@@ -662,128 +677,15 @@ struct FlowCtx {
     companion_path: Option<String>,
 }
 
-/// Execute a single FlowStep using flow's public `execute_step`.
+/// Execute a single FlowStep through the same dispatcher used by `flow run`.
 fn run_step(ctx: &FlowCtx, step: &crate::commands::flow::FlowStep) -> Result<String> {
-    use crate::{android, aurora, desktop, ios};
-
-    let platform = ctx.platform.as_str();
-    let device = ctx.device.as_deref();
-    let simulator = ctx.simulator.as_deref();
-    let companion_path = ctx.companion_path.as_deref();
-
-    // Delegate to the same helpers used by flow.rs.
-    match step.action.as_str() {
-        "tap" => {
-            if step.args.len() < 2 {
-                bail!("tap requires 2 args");
-            }
-            let x: i32 = step.args[0].parse()?;
-            let y: i32 = step.args[1].parse()?;
-            match platform {
-                "android" => android::tap(x, y, device)?,
-                "ios" => ios::tap(x, y, simulator)?,
-                "aurora" => aurora::tap(x, y, device)?,
-                "desktop" => desktop::tap(x, y, companion_path)?,
-                _ => bail!("Unsupported platform"),
-            }
-            Ok(format!("Tapped ({}, {})", x, y))
-        }
-        "tap-text" => {
-            if step.args.is_empty() {
-                bail!("tap-text requires 1 arg");
-            }
-            let query = &step.args[0];
-            match platform {
-                "android" => android::tap_element(query, device)?,
-                "ios" => ios::tap_element(query, simulator)?,
-                "desktop" => desktop::tap_by_text(query, companion_path)?,
-                _ => bail!("Unsupported platform"),
-            }
-            Ok(format!("Tapped \"{}\"", query))
-        }
-        "input" => {
-            if step.args.is_empty() {
-                bail!("input requires 1 arg");
-            }
-            let text = &step.args[0];
-            match platform {
-                "android" => android::input_text(text, device)?,
-                "ios" => ios::input_text(text, simulator)?,
-                "aurora" => aurora::input_text(text, device)?,
-                "desktop" => desktop::input_text(text, companion_path)?,
-                _ => bail!("Unsupported platform"),
-            }
-            Ok(format!("Typed \"{}\"", text))
-        }
-        "swipe" => {
-            if step.args.len() < 4 {
-                bail!("swipe requires 4 args");
-            }
-            let x1: i32 = step.args[0].parse()?;
-            let y1: i32 = step.args[1].parse()?;
-            let x2: i32 = step.args[2].parse()?;
-            let y2: i32 = step.args[3].parse()?;
-            let dur: u32 = step.args.get(4).and_then(|s| s.parse().ok()).unwrap_or(300);
-            match platform {
-                "android" => android::swipe(x1, y1, x2, y2, dur, device)?,
-                "ios" => ios::swipe(x1, y1, x2, y2, dur, simulator)?,
-                "aurora" => aurora::swipe(x1, y1, x2, y2, dur, device)?,
-                _ => bail!("Unsupported platform"),
-            }
-            Ok(format!("Swiped ({},{}) -> ({},{})", x1, y1, x2, y2))
-        }
-        "key" => {
-            if step.args.is_empty() {
-                bail!("key requires 1 arg");
-            }
-            let key = &step.args[0];
-            match platform {
-                "android" => android::press_key(key, device)?,
-                "ios" => ios::press_key(key, simulator)?,
-                "aurora" => aurora::press_key(key, device)?,
-                "desktop" => desktop::press_key(key, companion_path)?,
-                _ => bail!("Unsupported platform"),
-            }
-            Ok(format!("Pressed key \"{}\"", key))
-        }
-        "wait" => {
-            if step.args.is_empty() {
-                bail!("wait requires 1 arg");
-            }
-            let ms: u64 = step.args[0].parse()?;
-            std::thread::sleep(std::time::Duration::from_millis(ms));
-            Ok(format!("Waited {}ms", ms))
-        }
-        "launch" => {
-            if step.args.is_empty() {
-                bail!("launch requires 1 arg");
-            }
-            let pkg = &step.args[0];
-            match platform {
-                "android" => android::launch_app(pkg, device)?,
-                "ios" => ios::launch_app(pkg, simulator)?,
-                "aurora" => aurora::launch_app(pkg, device)?,
-                "desktop" => desktop::launch_app(pkg, companion_path)?,
-                _ => bail!("Unsupported platform"),
-            }
-            Ok(format!("Launched \"{}\"", pkg))
-        }
-        "stop" => {
-            if step.args.is_empty() {
-                bail!("stop requires 1 arg");
-            }
-            let pkg = &step.args[0];
-            match platform {
-                "android" => android::stop_app(pkg, device)?,
-                "ios" => ios::stop_app(pkg, simulator)?,
-                "aurora" => aurora::stop_app(pkg, device)?,
-                "desktop" => desktop::stop_app(pkg, companion_path)?,
-                _ => bail!("Unsupported platform"),
-            }
-            Ok(format!("Stopped \"{}\"", pkg))
-        }
-        other => bail!("Unsupported action '{}' in recorder play", other),
-    }
+    crate::commands::flow::execute_step_for_platform(
+        &ctx.platform,
+        ctx.device.as_deref(),
+        ctx.simulator.as_deref(),
+        ctx.companion_path.as_deref(),
+        step,
+    )
 }
 
 /// Run a step with a wall-clock timeout via a dedicated thread.
@@ -881,7 +783,13 @@ fn export_markdown(scenario: &Scenario) -> Result<()> {
         } else {
             format!(" `{}`", step.args.join(", "))
         };
-        println!("{}. **{}**{}{}", step.index + 1, step.action, args_str, label);
+        println!(
+            "{}. **{}**{}{}",
+            step.index + 1,
+            step.action,
+            args_str,
+            label
+        );
     }
     Ok(())
 }
@@ -1063,17 +971,15 @@ mod tests {
             platform: "android".into(),
             description: None,
             tags: vec![],
-            steps: vec![
-                ScenarioStep {
-                    index: 0,
-                    step_type: "gesture".into(),
-                    action: "tap".into(),
-                    args: vec!["10".into(), "20".into()],
-                    timestamp_ms: 0,
-                    delay_before_ms: 0,
-                    label: None,
-                },
-            ],
+            steps: vec![ScenarioStep {
+                index: 0,
+                step_type: "gesture".into(),
+                action: "tap".into(),
+                args: vec!["10".into(), "20".into()],
+                timestamp_ms: 0,
+                delay_before_ms: 0,
+                label: None,
+            }],
             created_at: "2026-05-27T00:00:00Z".into(),
             updated_at: "2026-05-27T00:00:00Z".into(),
         };

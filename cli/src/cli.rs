@@ -61,8 +61,8 @@ pub enum Commands {
 
     /// Take annotated screenshot with UI element bounds
     Annotate {
-        /// Platform: android or ios
-        #[arg(value_parser = ["android", "ios"])]
+        /// Platform: android, ios, or harmony
+        #[arg(value_parser = ["android", "ios", "harmony"])]
         platform: String,
 
         /// Output file path (default: stdout as base64)
@@ -73,7 +73,7 @@ pub enum Commands {
         #[arg(long)]
         simulator: Option<String>,
 
-        /// Android device serial
+        /// Android/HarmonyOS device serial
         #[arg(long)]
         device: Option<String>,
     },
@@ -90,7 +90,7 @@ pub enum Commands {
         /// Y coordinate
         y: i32,
 
-        /// Tap by text instead of coordinates (Android/Desktop)
+        /// Tap by text instead of coordinates (Android/HarmonyOS/Desktop)
         #[arg(long)]
         text: Option<String>,
 
@@ -136,7 +136,7 @@ pub enum Commands {
         #[arg(short, long, default_value = "1000")]
         duration: u32,
 
-        /// Long press by text (Android)
+        /// Long press by text (Android/HarmonyOS)
         #[arg(long)]
         text: Option<String>,
 
@@ -427,8 +427,8 @@ pub enum Commands {
 
     /// Find element by text/resource-id and get coordinates
     Find {
-        /// Platform: android or ios
-        #[arg(value_parser = ["android", "ios"])]
+        /// Platform: android, ios, or harmony
+        #[arg(value_parser = ["android", "ios", "harmony"])]
         platform: String,
 
         /// Text, resource-id, or content-desc to search for
@@ -445,8 +445,8 @@ pub enum Commands {
 
     /// Tap element by text/resource-id
     TapText {
-        /// Platform: android or ios
-        #[arg(value_parser = ["android", "ios"])]
+        /// Platform: android, ios, or harmony
+        #[arg(value_parser = ["android", "ios", "harmony"])]
         platform: String,
 
         /// Text, resource-id, or content-desc to tap
@@ -569,21 +569,20 @@ pub enum Commands {
 
     /// Get screen resolution
     ScreenSize {
-        /// Platform: android or ios
-        #[arg(value_parser = ["android", "ios"])]
+        /// Platform: android, ios, or harmony
+        #[arg(value_parser = ["android", "ios", "harmony"])]
         platform: String,
 
         /// iOS Simulator name
         #[arg(long)]
         simulator: Option<String>,
 
-        /// Android device serial
+        /// Android/HarmonyOS device serial
         #[arg(long)]
         device: Option<String>,
     },
 
     // ===== New commands =====
-
     /// Analyze screen structure (Android only)
     AnalyzeScreen {
         /// Android device serial
@@ -754,7 +753,6 @@ pub enum Commands {
     },
 
     // ===== Store management =====
-
     /// Google Play Store management (upload, submit, promote, etc.)
     Store {
         #[command(subcommand)]
@@ -781,8 +779,8 @@ pub enum Commands {
 
     /// Wait for a UI element to appear (polls every --interval ms up to --timeout ms)
     UiWait {
-        /// Platform: android or ios
-        #[arg(value_parser = ["android", "ios"])]
+        /// Platform: android, ios, or harmony
+        #[arg(value_parser = ["android", "ios", "harmony"])]
         platform: String,
 
         /// Match by text (case-insensitive partial match)
@@ -809,15 +807,15 @@ pub enum Commands {
         #[arg(long)]
         simulator: Option<String>,
 
-        /// Android device serial
+        /// Android/HarmonyOS device serial
         #[arg(long)]
         device: Option<String>,
     },
 
     /// Assert that a UI element is currently visible (exit 1 if not found)
     UiAssertVisible {
-        /// Platform: android or ios
-        #[arg(value_parser = ["android", "ios"])]
+        /// Platform: android, ios, or harmony
+        #[arg(value_parser = ["android", "ios", "harmony"])]
         platform: String,
 
         /// Match by text (case-insensitive partial match)
@@ -832,15 +830,15 @@ pub enum Commands {
         #[arg(long)]
         simulator: Option<String>,
 
-        /// Android device serial
+        /// Android/HarmonyOS device serial
         #[arg(long)]
         device: Option<String>,
     },
 
     /// Assert that a UI element is NOT present (exit 1 if found)
     UiAssertGone {
-        /// Platform: android or ios
-        #[arg(value_parser = ["android", "ios"])]
+        /// Platform: android, ios, or harmony
+        #[arg(value_parser = ["android", "ios", "harmony"])]
         platform: String,
 
         /// Match by text (case-insensitive partial match)
@@ -855,13 +853,12 @@ pub enum Commands {
         #[arg(long)]
         simulator: Option<String>,
 
-        /// Android device serial
+        /// Android/HarmonyOS device serial
         #[arg(long)]
         device: Option<String>,
     },
 
     // ===== Sensor commands (Android-only) =====
-
     /// Set mock GPS location (Android only)
     SensorLocation {
         /// Latitude in decimal degrees (e.g. 37.7749)
@@ -929,7 +926,6 @@ pub enum Commands {
     },
 
     // ===== Network commands (Android-only) =====
-
     /// Show per-app or global network traffic (Android only)
     NetworkTraffic {
         /// Filter by package name (omit for global stats)
@@ -979,69 +975,67 @@ pub enum Commands {
     },
 
     // ===== Permission commands =====
-
     /// Grant a permission to a package
     PermissionGrant {
-        /// Platform: android or ios
-        #[arg(value_parser = ["android", "ios"])]
+        /// Platform: android, ios, or harmony
+        #[arg(value_parser = ["android", "ios", "harmony"])]
         platform: String,
 
-        /// Package name (Android) or bundle ID (iOS)
+        /// Package name (Android), bundle ID (iOS), or bundle name (HarmonyOS)
         package: String,
 
-        /// Permission (e.g. android.permission.CAMERA or photos/camera for iOS)
+        /// Platform permission name
         permission: String,
 
         /// iOS Simulator name
         #[arg(long)]
         simulator: Option<String>,
 
-        /// Android device serial
+        /// Android or HarmonyOS device serial
         #[arg(long)]
         device: Option<String>,
     },
 
     /// Revoke a permission from a package
     PermissionRevoke {
-        /// Platform: android or ios
-        #[arg(value_parser = ["android", "ios"])]
+        /// Platform: android, ios, or harmony
+        #[arg(value_parser = ["android", "ios", "harmony"])]
         platform: String,
 
-        /// Package name (Android) or bundle ID (iOS)
+        /// Package name (Android), bundle ID (iOS), or bundle name (HarmonyOS)
         package: String,
 
-        /// Permission name
+        /// Platform permission name
         permission: String,
 
         /// iOS Simulator name
         #[arg(long)]
         simulator: Option<String>,
 
-        /// Android device serial
+        /// Android or HarmonyOS device serial
         #[arg(long)]
         device: Option<String>,
     },
 
     /// Reset all runtime permissions for a package
     PermissionReset {
-        /// Platform: android or ios
-        #[arg(value_parser = ["android", "ios"])]
+        /// Platform: android, ios, or harmony
+        #[arg(value_parser = ["android", "ios", "harmony"])]
         platform: String,
 
-        /// Package name (Android) or bundle ID (iOS)
+        /// Package name (Android), bundle ID (iOS), or bundle name (HarmonyOS)
         package: String,
 
         /// iOS Simulator name
         #[arg(long)]
         simulator: Option<String>,
 
-        /// Android device serial
+        /// Android or HarmonyOS device serial
         #[arg(long)]
         device: Option<String>,
     },
 
     // ===== Intent commands (Android + iOS deeplink) =====
-
     /// Start an activity via am start (Android only)
     IntentStart {
         /// Intent action (e.g. android.intent.action.MAIN)
@@ -1134,7 +1128,6 @@ pub enum Commands {
     },
 
     // ===== Sandbox commands (Android-only) =====
-
     /// Read SharedPreferences XML from app sandbox (Android only)
     SandboxPrefsRead {
         /// Package name
@@ -1188,23 +1181,31 @@ pub enum Commands {
         device: Option<String>,
     },
 
-    /// List files in the app sandbox directory (Android only)
+    /// List files in an Android or HarmonyOS app sandbox
     SandboxFileList {
-        /// Package name
+        /// Target platform
+        #[arg(long, default_value = "android", value_parser = ["android", "harmony"])]
+        platform: String,
+
+        /// Package or bundle name
         package: String,
 
         /// Path inside app data dir (default: .)
         #[arg(long)]
         path: Option<String>,
 
-        /// Android device serial
+        /// Android or HarmonyOS device serial
         #[arg(long)]
         device: Option<String>,
     },
 
-    /// Read a file from the app sandbox (Android only)
+    /// Read a file from an Android or HarmonyOS app sandbox
     SandboxFileRead {
-        /// Package name
+        /// Target platform
+        #[arg(long, default_value = "android", value_parser = ["android", "harmony"])]
+        platform: String,
+
+        /// Package or bundle name
         package: String,
 
         /// File path inside app data dir
@@ -1214,13 +1215,96 @@ pub enum Commands {
         #[arg(long)]
         max_bytes: Option<u64>,
 
-        /// Android device serial
+        /// Android or HarmonyOS device serial
+        #[arg(long)]
+        device: Option<String>,
+    },
+
+    /// Upload a file into a running debug-signed HarmonyOS app sandbox
+    HarmonySandboxPush {
+        /// Bundle name
+        bundle: String,
+
+        /// Local source file
+        local: String,
+
+        /// Destination path inside the sandbox
+        remote: String,
+
+        /// HarmonyOS device serial
+        #[arg(long)]
+        device: Option<String>,
+    },
+
+    /// Download a file from a running debug-signed HarmonyOS app sandbox
+    HarmonySandboxPull {
+        /// Bundle name
+        bundle: String,
+
+        /// Source path inside the sandbox
+        remote: String,
+
+        /// Local destination file
+        local: String,
+
+        /// HarmonyOS device serial
+        #[arg(long)]
+        device: Option<String>,
+    },
+
+    /// Inspect ArkWeb pages or close their HDC port-forward
+    HarmonyArkweb {
+        /// ArkWeb webview_devtools_remote_* socket (auto-detected for inspection)
+        #[arg(long)]
+        socket: Option<String>,
+
+        /// Local DevTools port
+        #[arg(long, default_value_t = 9222)]
+        port: u16,
+
+        /// Remove the port-forward instead of inspecting pages
+        #[arg(long)]
+        close: bool,
+
+        /// HarmonyOS device serial
+        #[arg(long)]
+        device: Option<String>,
+    },
+
+    /// Run an ArkXTest module through aa test
+    HarmonyTest {
+        /// Test bundle name
+        bundle: String,
+
+        /// Test HAP module name
+        module: String,
+
+        /// ArkXTest runner
+        #[arg(long, default_value = "OpenHarmonyTestRunner")]
+        runner: String,
+
+        /// describe or describe#it filter
+        #[arg(long)]
+        class: Option<String>,
+
+        /// describe or describe#it exclusion
+        #[arg(long)]
+        not_class: Option<String>,
+
+        /// Test timeout in milliseconds
+        #[arg(long)]
+        timeout_ms: Option<u64>,
+
+        /// Discover tests without executing them
+        #[arg(long)]
+        dry_run: bool,
+
+        /// HarmonyOS device serial
         #[arg(long)]
         device: Option<String>,
     },
 
     // ===== Performance commands (Android-only) =====
-
     /// Capture memory/CPU/battery/framestats snapshot for a package (Android only)
     PerfSnapshot {
         /// Package name (e.g. com.example.app)
@@ -1334,8 +1418,8 @@ pub enum Commands {
 pub enum FlowCommands {
     /// Execute a sequence of steps from JSON (stdin or --file)
     Run {
-        /// Platform: android, ios, aurora, or desktop
-        #[arg(value_parser = ["android", "ios", "aurora", "desktop"])]
+        /// Platform: android, ios, harmony, aurora, or desktop
+        #[arg(value_parser = ["android", "ios", "harmony", "aurora", "desktop"])]
         platform: String,
 
         /// Path to JSON file with steps (reads from stdin if omitted)
@@ -1358,7 +1442,7 @@ pub enum FlowCommands {
         #[arg(long)]
         simulator: Option<String>,
 
-        /// Android/Aurora device serial
+        /// Android/HarmonyOS/Aurora device serial
         #[arg(long)]
         device: Option<String>,
 
@@ -1372,8 +1456,8 @@ pub enum FlowCommands {
     /// Input JSON format:
     /// `[{"name": "tap", "arguments": ["100", "200"]}, {"name": "input", "arguments": ["hello"]}]`
     Batch {
-        /// Platform: android, ios, aurora, or desktop
-        #[arg(value_parser = ["android", "ios", "aurora", "desktop"])]
+        /// Platform: android, ios, harmony, aurora, or desktop
+        #[arg(value_parser = ["android", "ios", "harmony", "aurora", "desktop"])]
         platform: String,
 
         /// Path to JSON file with commands (reads from stdin if omitted)
@@ -1392,7 +1476,7 @@ pub enum FlowCommands {
         #[arg(long)]
         simulator: Option<String>,
 
-        /// Android/Aurora device serial
+        /// Android/HarmonyOS/Aurora device serial
         #[arg(long)]
         device: Option<String>,
 
@@ -1405,8 +1489,8 @@ pub enum FlowCommands {
     ///
     /// Example: `mcp-devices-cli flow parallel android --file steps.json --devices "device1,device2"`
     Parallel {
-        /// Platform: android, ios, aurora, or desktop
-        #[arg(value_parser = ["android", "ios", "aurora", "desktop"])]
+        /// Platform: android, ios, harmony, aurora, or desktop
+        #[arg(value_parser = ["android", "ios", "harmony", "aurora", "desktop"])]
         platform: String,
 
         /// Path to JSON file with steps (reads from stdin if omitted)
@@ -1581,40 +1665,54 @@ pub enum StoreCommands {
     },
     /// Set release notes for the current Google Play draft
     SetNotes {
-        #[arg(short, long)] package: String,
+        #[arg(short, long)]
+        package: String,
         /// BCP-47 language tag (e.g. en-US, ru-RU)
-        #[arg(short, long)] language: String,
+        #[arg(short, long)]
+        language: String,
         /// Release notes text (max 500 chars)
-        #[arg(short, long)] text: String,
+        #[arg(short, long)]
+        text: String,
     },
     /// Publish the current Google Play draft to a track
     Submit {
-        #[arg(short, long)] package: String,
+        #[arg(short, long)]
+        package: String,
         /// Track: internal, alpha, beta, or production
-        #[arg(short, long, default_value = "internal")] track: String,
+        #[arg(short, long, default_value = "internal")]
+        track: String,
         /// Staged rollout fraction 0.01-1.0 (default: 1.0 = 100%)
-        #[arg(long, default_value = "1.0")] rollout: f64,
+        #[arg(long, default_value = "1.0")]
+        rollout: f64,
     },
     /// Promote latest release from one track to another
     Promote {
-        #[arg(short, long)] package: String,
-        #[arg(long)] from_track: String,
-        #[arg(long)] to_track: String,
+        #[arg(short, long)]
+        package: String,
+        #[arg(long)]
+        from_track: String,
+        #[arg(long)]
+        to_track: String,
     },
     /// Get current releases across tracks
     GetReleases {
-        #[arg(short, long)] package: String,
+        #[arg(short, long)]
+        package: String,
         /// Filter to specific track (omit for all tracks)
-        #[arg(short, long)] track: Option<String>,
+        #[arg(short, long)]
+        track: Option<String>,
     },
     /// Halt a staged rollout
     HaltRollout {
-        #[arg(short, long)] package: String,
-        #[arg(short, long)] track: String,
+        #[arg(short, long)]
+        package: String,
+        #[arg(short, long)]
+        track: String,
     },
     /// Discard the current draft without publishing
     Discard {
-        #[arg(short, long)] package: String,
+        #[arg(short, long)]
+        package: String,
     },
 }
 
@@ -1624,22 +1722,29 @@ pub enum StoreCommands {
 pub enum HuaweiCommands {
     /// Upload APK or AAB to Huawei AppGallery
     Upload {
-        #[arg(short, long)] package: String,
-        #[arg(short, long)] file: String,
+        #[arg(short, long)]
+        package: String,
+        #[arg(short, long)]
+        file: String,
     },
     /// Set release notes for the current Huawei draft
     SetNotes {
-        #[arg(short, long)] package: String,
-        #[arg(short, long)] language: String,
-        #[arg(short, long)] text: String,
+        #[arg(short, long)]
+        package: String,
+        #[arg(short, long)]
+        language: String,
+        #[arg(short, long)]
+        text: String,
     },
     /// Submit Huawei draft for review and publishing
     Submit {
-        #[arg(short, long)] package: String,
+        #[arg(short, long)]
+        package: String,
     },
     /// Get current release info from Huawei AppGallery
     GetReleases {
-        #[arg(short, long)] package: String,
+        #[arg(short, long)]
+        package: String,
     },
 }
 
@@ -1649,26 +1754,34 @@ pub enum HuaweiCommands {
 pub enum RuStoreCommands {
     /// Upload APK or AAB to RuStore
     Upload {
-        #[arg(short, long)] package: String,
-        #[arg(short, long)] file: String,
+        #[arg(short, long)]
+        package: String,
+        #[arg(short, long)]
+        file: String,
     },
     /// Set what's new notes for the current RuStore draft
     SetNotes {
-        #[arg(short, long)] package: String,
-        #[arg(short, long)] language: String,
-        #[arg(short, long)] text: String,
+        #[arg(short, long)]
+        package: String,
+        #[arg(short, long)]
+        language: String,
+        #[arg(short, long)]
+        text: String,
     },
     /// Submit RuStore draft for moderation
     Submit {
-        #[arg(short, long)] package: String,
+        #[arg(short, long)]
+        package: String,
     },
     /// Get list of versions and statuses from RuStore
     GetVersions {
-        #[arg(short, long)] package: String,
+        #[arg(short, long)]
+        package: String,
     },
     /// Delete current RuStore draft
     Discard {
-        #[arg(short, long)] package: String,
+        #[arg(short, long)]
+        package: String,
     },
 }
 
@@ -1682,8 +1795,8 @@ pub enum RecorderCommands {
         #[arg(short, long)]
         name: String,
 
-        /// Target platform (android, ios, aurora, desktop)
-        #[arg(short, long, default_value = "android")]
+        /// Target platform (android, ios, harmony, aurora, desktop)
+        #[arg(short, long, default_value = "android", value_parser = ["android", "ios", "harmony", "aurora", "desktop"])]
         platform: String,
 
         /// Human-readable description of the scenario
@@ -1728,9 +1841,8 @@ pub enum RecorderCommands {
     /// List saved scenarios
     List {
         /// Filter by platform (omit to list all platforms)
-        #[arg(short, long)]
+        #[arg(short, long, value_parser = ["android", "ios", "harmony", "aurora", "desktop"])]
         platform: Option<String>,
-
         /// Filter by tag
         #[arg(long)]
         tag: Option<String>,
@@ -1742,7 +1854,7 @@ pub enum RecorderCommands {
         name: String,
 
         /// Platform the scenario belongs to
-        #[arg(short, long, default_value = "android")]
+        #[arg(short, long, default_value = "android", value_parser = ["android", "ios", "harmony", "aurora", "desktop"])]
         platform: String,
     },
 
@@ -1752,7 +1864,7 @@ pub enum RecorderCommands {
         name: String,
 
         /// Platform the scenario belongs to
-        #[arg(short, long, default_value = "android")]
+        #[arg(short, long, default_value = "android", value_parser = ["android", "ios", "harmony", "aurora", "desktop"])]
         platform: String,
     },
 
@@ -1762,7 +1874,7 @@ pub enum RecorderCommands {
         name: String,
 
         /// Platform to replay on
-        #[arg(short, long, default_value = "android")]
+        #[arg(short, long, default_value = "android", value_parser = ["android", "ios", "harmony", "aurora", "desktop"])]
         platform: String,
 
         /// Playback speed multiplier (default: 1.0)
@@ -1800,7 +1912,7 @@ pub enum RecorderCommands {
         name: String,
 
         /// Platform the scenario belongs to
-        #[arg(short, long, default_value = "android")]
+        #[arg(short, long, default_value = "android", value_parser = ["android", "ios", "harmony", "aurora", "desktop"])]
         platform: String,
 
         /// Output format: flow_steps or markdown

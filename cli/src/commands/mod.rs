@@ -47,7 +47,12 @@ pub fn run(command: Commands) -> Result<()> {
             output,
             simulator,
             device,
-        } => device::annotate(&platform, output.as_deref(), simulator.as_deref(), device.as_deref()),
+        } => device::annotate(
+            &platform,
+            output.as_deref(),
+            simulator.as_deref(),
+            device.as_deref(),
+        ),
 
         Commands::Tap {
             platform,
@@ -186,7 +191,12 @@ pub fn run(command: Commands) -> Result<()> {
             filter,
             simulator,
             device,
-        } => device::apps(&platform, filter.as_deref(), simulator.as_deref(), device.as_deref()),
+        } => device::apps(
+            &platform,
+            filter.as_deref(),
+            simulator.as_deref(),
+            device.as_deref(),
+        ),
 
         Commands::Launch {
             platform,
@@ -257,7 +267,13 @@ pub fn run(command: Commands) -> Result<()> {
             package: _,
             simulator,
             device,
-        } => device::logs(&platform, filter.as_deref(), lines, simulator.as_deref(), device.as_deref()),
+        } => device::logs(
+            &platform,
+            filter.as_deref(),
+            lines,
+            simulator.as_deref(),
+            device.as_deref(),
+        ),
 
         Commands::ClearLogs {
             platform,
@@ -326,35 +342,44 @@ pub fn run(command: Commands) -> Result<()> {
             simulator: _,
             device,
             companion_path,
-        } => device::set_clipboard(&platform, &text, device.as_deref(), companion_path.as_deref()),
+        } => device::set_clipboard(
+            &platform,
+            &text,
+            device.as_deref(),
+            companion_path.as_deref(),
+        ),
 
         Commands::GetPerformanceMetrics { companion_path } => {
             device::get_performance_metrics(companion_path.as_deref())
         }
 
-        Commands::GetMonitors { companion_path } => {
-            device::get_monitors(companion_path.as_deref())
-        }
+        Commands::GetMonitors { companion_path } => device::get_monitors(companion_path.as_deref()),
 
-        Commands::LaunchDesktopApp { app_path, companion_path } => {
-            device::launch_desktop_app(&app_path, companion_path.as_deref())
-        }
+        Commands::LaunchDesktopApp {
+            app_path,
+            companion_path,
+        } => device::launch_desktop_app(&app_path, companion_path.as_deref()),
 
-        Commands::StopDesktopApp { app_name, companion_path } => {
-            device::stop_desktop_app(&app_name, companion_path.as_deref())
-        }
+        Commands::StopDesktopApp {
+            app_name,
+            companion_path,
+        } => device::stop_desktop_app(&app_name, companion_path.as_deref()),
 
         Commands::GetWindowInfo { companion_path } => {
             device::get_window_info(companion_path.as_deref())
         }
 
-        Commands::FocusWindow { window_id, companion_path } => {
-            device::focus_window(&window_id, companion_path.as_deref())
-        }
+        Commands::FocusWindow {
+            window_id,
+            companion_path,
+        } => device::focus_window(&window_id, companion_path.as_deref()),
 
-        Commands::ResizeWindow { window_id, width, height, companion_path } => {
-            device::resize_window(&window_id, width, height, companion_path.as_deref())
-        }
+        Commands::ResizeWindow {
+            window_id,
+            width,
+            height,
+            companion_path,
+        } => device::resize_window(&window_id, width, height, companion_path.as_deref()),
 
         Commands::UiWait {
             platform,
@@ -405,74 +430,90 @@ pub fn run(command: Commands) -> Result<()> {
         ),
 
         // -- Sensor commands --------------------------------------------------
-        Commands::SensorLocation { latitude, longitude, altitude, device } => {
-            device::sensor_location(latitude, longitude, altitude, device.as_deref())
-        }
+        Commands::SensorLocation {
+            latitude,
+            longitude,
+            altitude,
+            device,
+        } => device::sensor_location(latitude, longitude, altitude, device.as_deref()),
 
-        Commands::SensorBattery { level, status, plugged, reset, device } => {
-            device::sensor_battery(
-                level,
-                status.as_deref(),
-                plugged.as_deref(),
-                reset,
-                device.as_deref(),
-            )
-        }
+        Commands::SensorBattery {
+            level,
+            status,
+            plugged,
+            reset,
+            device,
+        } => device::sensor_battery(
+            level,
+            status.as_deref(),
+            plugged.as_deref(),
+            reset,
+            device.as_deref(),
+        ),
 
         Commands::SensorNotifications { package, device } => {
             device::sensor_notifications(package.as_deref(), device.as_deref())
         }
 
-        Commands::SensorThermal { status, reset, device } => {
-            device::sensor_thermal(status.as_deref(), reset, device.as_deref())
-        }
+        Commands::SensorThermal {
+            status,
+            reset,
+            device,
+        } => device::sensor_thermal(status.as_deref(), reset, device.as_deref()),
 
         // -- Network commands -------------------------------------------------
         Commands::NetworkTraffic { package, device } => {
             device::network_traffic(package.as_deref(), device.as_deref())
         }
 
-        Commands::NetworkConnectivity { device } => {
-            device::network_connectivity(device.as_deref())
-        }
+        Commands::NetworkConnectivity { device } => device::network_connectivity(device.as_deref()),
 
-        Commands::NetworkProxy { host, port, clear, device } => {
-            device::network_proxy(host.as_deref(), port, clear, device.as_deref())
-        }
+        Commands::NetworkProxy {
+            host,
+            port,
+            clear,
+            device,
+        } => device::network_proxy(host.as_deref(), port, clear, device.as_deref()),
 
         Commands::NetworkAirplane { state, device } => {
             device::network_airplane(state == "on", device.as_deref())
         }
 
         // -- Permission commands ----------------------------------------------
-        Commands::PermissionGrant { platform, package, permission, simulator, device } => {
-            device::permission_grant(
-                &platform,
-                &package,
-                &permission,
-                simulator.as_deref(),
-                device.as_deref(),
-            )
-        }
+        Commands::PermissionGrant {
+            platform,
+            package,
+            permission,
+            simulator,
+            device,
+        } => device::permission_grant(
+            &platform,
+            &package,
+            &permission,
+            simulator.as_deref(),
+            device.as_deref(),
+        ),
 
-        Commands::PermissionRevoke { platform, package, permission, simulator, device } => {
-            device::permission_revoke(
-                &platform,
-                &package,
-                &permission,
-                simulator.as_deref(),
-                device.as_deref(),
-            )
-        }
+        Commands::PermissionRevoke {
+            platform,
+            package,
+            permission,
+            simulator,
+            device,
+        } => device::permission_revoke(
+            &platform,
+            &package,
+            &permission,
+            simulator.as_deref(),
+            device.as_deref(),
+        ),
 
-        Commands::PermissionReset { platform, package, simulator, device } => {
-            device::permission_reset(
-                &platform,
-                &package,
-                simulator.as_deref(),
-                device.as_deref(),
-            )
-        }
+        Commands::PermissionReset {
+            platform,
+            package,
+            simulator,
+            device,
+        } => device::permission_reset(&platform, &package, simulator.as_deref(), device.as_deref()),
 
         // -- Intent commands --------------------------------------------------
         Commands::IntentStart {
@@ -495,57 +536,123 @@ pub fn run(command: Commands) -> Result<()> {
             device.as_deref(),
         ),
 
-        Commands::IntentBroadcast { action, package, component, extras, device } => {
-            device::intent_broadcast(
-                &action,
-                package.as_deref(),
-                component.as_deref(),
-                extras.as_deref(),
-                device.as_deref(),
-            )
-        }
+        Commands::IntentBroadcast {
+            action,
+            package,
+            component,
+            extras,
+            device,
+        } => device::intent_broadcast(
+            &action,
+            package.as_deref(),
+            component.as_deref(),
+            extras.as_deref(),
+            device.as_deref(),
+        ),
 
-        Commands::IntentDeeplink { platform, uri, package, simulator, device } => {
-            device::intent_deeplink(
-                &platform,
-                &uri,
-                package.as_deref(),
-                simulator.as_deref(),
-                device.as_deref(),
-            )
-        }
+        Commands::IntentDeeplink {
+            platform,
+            uri,
+            package,
+            simulator,
+            device,
+        } => device::intent_deeplink(
+            &platform,
+            &uri,
+            package.as_deref(),
+            simulator.as_deref(),
+            device.as_deref(),
+        ),
 
         Commands::IntentServices { package, device } => {
             device::intent_services(package.as_deref(), device.as_deref())
         }
 
         // -- Sandbox commands -------------------------------------------------
-        Commands::SandboxPrefsRead { package, file, device } => {
-            device::sandbox_prefs_read(&package, file.as_deref(), device.as_deref())
-        }
+        Commands::SandboxPrefsRead {
+            package,
+            file,
+            device,
+        } => device::sandbox_prefs_read(&package, file.as_deref(), device.as_deref()),
 
-        Commands::SandboxPrefsWrite { package, file, key, value, r#type, device } => {
-            device::sandbox_prefs_write(
-                &package,
-                &file,
-                &key,
-                &value,
-                Some(r#type.as_str()),
-                device.as_deref(),
-            )
-        }
+        Commands::SandboxPrefsWrite {
+            package,
+            file,
+            key,
+            value,
+            r#type,
+            device,
+        } => device::sandbox_prefs_write(
+            &package,
+            &file,
+            &key,
+            &value,
+            Some(r#type.as_str()),
+            device.as_deref(),
+        ),
 
-        Commands::SandboxSqliteQuery { package, database, query, device } => {
-            device::sandbox_sqlite_query(&package, &database, &query, device.as_deref())
-        }
+        Commands::SandboxSqliteQuery {
+            package,
+            database,
+            query,
+            device,
+        } => device::sandbox_sqlite_query(&package, &database, &query, device.as_deref()),
 
-        Commands::SandboxFileList { package, path, device } => {
-            device::sandbox_file_list(&package, path.as_deref(), device.as_deref())
-        }
+        Commands::SandboxFileList {
+            platform,
+            package,
+            path,
+            device,
+        } => device::sandbox_file_list(&platform, &package, path.as_deref(), device.as_deref()),
 
-        Commands::SandboxFileRead { package, path, max_bytes, device } => {
-            device::sandbox_file_read(&package, &path, max_bytes, device.as_deref())
-        }
+        Commands::SandboxFileRead {
+            platform,
+            package,
+            path,
+            max_bytes,
+            device,
+        } => device::sandbox_file_read(&platform, &package, &path, max_bytes, device.as_deref()),
+
+        Commands::HarmonySandboxPush {
+            bundle,
+            local,
+            remote,
+            device,
+        } => device::harmony_sandbox_push(&bundle, &local, &remote, device.as_deref()),
+
+        Commands::HarmonySandboxPull {
+            bundle,
+            remote,
+            local,
+            device,
+        } => device::harmony_sandbox_pull(&bundle, &remote, &local, device.as_deref()),
+
+        Commands::HarmonyArkweb {
+            socket,
+            port,
+            close,
+            device,
+        } => device::harmony_arkweb(socket.as_deref(), port, close, device.as_deref()),
+
+        Commands::HarmonyTest {
+            bundle,
+            module,
+            runner,
+            class,
+            not_class,
+            timeout_ms,
+            dry_run,
+            device,
+        } => device::harmony_test(
+            &bundle,
+            &module,
+            &runner,
+            class.as_deref(),
+            not_class.as_deref(),
+            timeout_ms,
+            dry_run,
+            device.as_deref(),
+        ),
 
         // -- Setup commands ---------------------------------------------------
         Commands::Setup { command } => setup::run(command),
@@ -620,21 +727,30 @@ pub fn run(command: Commands) -> Result<()> {
             device::perf_snapshot(&package, device.as_deref())
         }
 
-        Commands::PerfBaseline { package, name, device } => {
-            device::perf_baseline(&package, &name, device.as_deref())
-        }
+        Commands::PerfBaseline {
+            package,
+            name,
+            device,
+        } => device::perf_baseline(&package, &name, device.as_deref()),
 
-        Commands::PerfCompare { package, name, device } => {
-            device::perf_compare(&package, &name, device.as_deref())
-        }
+        Commands::PerfCompare {
+            package,
+            name,
+            device,
+        } => device::perf_compare(&package, &name, device.as_deref()),
 
-        Commands::PerfMonitor { package, count, interval_ms, device } => {
-            device::perf_monitor(&package, count, interval_ms, device.as_deref())
-        }
+        Commands::PerfMonitor {
+            package,
+            count,
+            interval_ms,
+            device,
+        } => device::perf_monitor(&package, count, interval_ms, device.as_deref()),
 
-        Commands::PerfCrashes { package, lines, device } => {
-            device::perf_crashes(package.as_deref(), lines, device.as_deref())
-        }
+        Commands::PerfCrashes {
+            package,
+            lines,
+            device,
+        } => device::perf_crashes(package.as_deref(), lines, device.as_deref()),
 
         Commands::PerfFramestats { package, device } => {
             device::perf_framestats(&package, device.as_deref())
@@ -650,14 +766,12 @@ pub fn run(command: Commands) -> Result<()> {
         Commands::Sync { command } => sync::run(command),
 
         // -- Config commands --------------------------------------------------
-        Commands::Config { command } => {
-            match command {
-                crate::cli::ConfigCommands::Get { key } => config::get(&key),
-                crate::cli::ConfigCommands::Set { key, value } => config::set(&key, &value),
-                crate::cli::ConfigCommands::List => config::list(),
-                crate::cli::ConfigCommands::Reset { key } => config::reset(&key),
-            }
-        }
+        Commands::Config { command } => match command {
+            crate::cli::ConfigCommands::Get { key } => config::get(&key),
+            crate::cli::ConfigCommands::Set { key, value } => config::set(&key, &value),
+            crate::cli::ConfigCommands::List => config::list(),
+            crate::cli::ConfigCommands::Reset { key } => config::reset(&key),
+        },
 
         // -- REPL supervisor (long-lived JSON-RPC stdio loop) ----------------
         Commands::ReplSupervisor => crate::plugins::repl::bridge::run_supervisor_loop(),

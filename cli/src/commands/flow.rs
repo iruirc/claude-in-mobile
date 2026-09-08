@@ -12,7 +12,7 @@ use anyhow::{bail, Result};
 use serde::{Deserialize, Serialize};
 
 use crate::utils::device_shell::DeviceShellCmd;
-use crate::{android, aurora, desktop, ios};
+use crate::{android, aurora, desktop, harmony, ios};
 
 // ---------------------------------------------------------------------------
 // Constants & limits
@@ -33,23 +33,51 @@ const BLOCKED_ACTIONS: &[&str] = &["shell", "system_shell"];
 /// All recognised action names — anything else is rejected.
 const ALLOWED_ACTIONS: &[&str] = &[
     // core interaction
-    "tap", "tap-text", "input", "swipe", "find", "key", "launch", "stop",
-    "screenshot", "wait", "ui-dump", "open-url",
+    "tap",
+    "tap-text",
+    "input",
+    "swipe",
+    "find",
+    "key",
+    "launch",
+    "stop",
+    "screenshot",
+    "wait",
+    "ui-dump",
+    "open-url",
     // Batch 1/2 — sensor
-    "sensor-location", "sensor-battery", "sensor-notifications", "sensor-thermal",
+    "sensor-location",
+    "sensor-battery",
+    "sensor-notifications",
+    "sensor-thermal",
     // Batch 1/2 — network
-    "network-traffic", "network-connectivity", "network-proxy", "network-airplane",
+    "network-traffic",
+    "network-connectivity",
+    "network-proxy",
+    "network-airplane",
     // Batch 1/2 — permissions
-    "permission-grant", "permission-revoke", "permission-reset",
+    "permission-grant",
+    "permission-revoke",
+    "permission-reset",
     // Batch 1/2 — intents
-    "intent-start", "intent-broadcast", "intent-deeplink", "intent-services",
+    "intent-start",
+    "intent-broadcast",
+    "intent-deeplink",
+    "intent-services",
     // Batch 1/2 — sandbox
-    "sandbox-prefs-read", "sandbox-prefs-write", "sandbox-sqlite-query",
-    "sandbox-file-list", "sandbox-file-read",
+    "sandbox-prefs-read",
+    "sandbox-prefs-write",
+    "sandbox-sqlite-query",
+    "sandbox-file-list",
+    "sandbox-file-read",
     // Batch 1/2 — UI assertions
-    "ui-wait", "ui-assert-visible", "ui-assert-gone",
+    "ui-wait",
+    "ui-assert-visible",
+    "ui-assert-gone",
     // Batch 1/2 — performance
-    "perf-snapshot", "perf-crashes", "perf-framestats",
+    "perf-snapshot",
+    "perf-crashes",
+    "perf-framestats",
 ];
 
 // ---------------------------------------------------------------------------
@@ -152,7 +180,11 @@ pub fn run(
         bail!("Flow contains zero steps");
     }
     if steps.len() > MAX_STEPS {
-        bail!("Flow contains {} steps, maximum is {}", steps.len(), MAX_STEPS);
+        bail!(
+            "Flow contains {} steps, maximum is {}",
+            steps.len(),
+            MAX_STEPS
+        );
     }
 
     // -- Validate actions -----------------------------------------------------
@@ -384,7 +416,11 @@ pub fn batch(
         .map(|cmd| FlowStep {
             action: cmd.name,
             args: cmd.arguments,
-            on_error: if stop_on_error { OnError::Stop } else { OnError::Skip },
+            on_error: if stop_on_error {
+                OnError::Stop
+            } else {
+                OnError::Skip
+            },
         })
         .collect();
 
@@ -457,7 +493,11 @@ pub fn batch(
             Err(e) => (false, format!("{e}")),
         };
 
-        let ui = if turbo { compact_ui_dump(&ctx).ok() } else { None };
+        let ui = if turbo {
+            compact_ui_dump(&ctx).ok()
+        } else {
+            None
+        };
 
         let screenshot_path = if turbo && !success && screenshots_taken < MAX_SCREENSHOTS {
             match capture_failure_screenshot(&ctx, i + 1) {
@@ -517,7 +557,11 @@ pub fn batch(
 
     println!("{}", serde_json::to_string_pretty(&output)?);
 
-    if all_passed { Ok(()) } else { bail!("") }
+    if all_passed {
+        Ok(())
+    } else {
+        bail!("")
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -665,7 +709,11 @@ pub fn parallel(
                 Err(e) => (false, format!("{e}")),
             };
 
-            let ui = if turbo { compact_ui_dump(&ctx).ok() } else { None };
+            let ui = if turbo {
+                compact_ui_dump(&ctx).ok()
+            } else {
+                None
+            };
 
             let screenshot_path = if turbo && !success && screenshots_taken < MAX_SCREENSHOTS {
                 match capture_failure_screenshot(&ctx, i + 1) {
@@ -741,6 +789,24 @@ pub fn parallel(
 // Step dispatcher — maps action names to existing platform functions
 // ---------------------------------------------------------------------------
 
+pub(super) fn execute_step_for_platform(
+    platform: &str,
+    device: Option<&str>,
+    simulator: Option<&str>,
+    companion_path: Option<&str>,
+    step: &FlowStep,
+) -> Result<String> {
+    execute_step(
+        &PlatformCtx {
+            platform,
+            device,
+            simulator,
+            companion_path,
+        },
+        step,
+    )
+}
+
 fn execute_step(ctx: &PlatformCtx<'_>, step: &FlowStep) -> Result<String> {
     match step.action.as_str() {
         // core
@@ -799,18 +865,28 @@ fn execute_step(ctx: &PlatformCtx<'_>, step: &FlowStep) -> Result<String> {
 
 fn require_args(args: &[String], min: usize, action: &str) -> Result<()> {
     if args.len() < min {
-        bail!("{} requires at least {} argument(s), got {}", action, min, args.len());
+        bail!(
+            "{} requires at least {} argument(s), got {}",
+            action,
+            min,
+            args.len()
+        );
     }
     Ok(())
 }
 
 fn step_tap(ctx: &PlatformCtx<'_>, args: &[String]) -> Result<String> {
     require_args(args, 2, "tap")?;
-    let x: i32 = args[0].parse().map_err(|_| anyhow::anyhow!("Invalid x coordinate"))?;
-    let y: i32 = args[1].parse().map_err(|_| anyhow::anyhow!("Invalid y coordinate"))?;
+    let x: i32 = args[0]
+        .parse()
+        .map_err(|_| anyhow::anyhow!("Invalid x coordinate"))?;
+    let y: i32 = args[1]
+        .parse()
+        .map_err(|_| anyhow::anyhow!("Invalid y coordinate"))?;
     match ctx.platform {
         "android" => android::tap(x, y, ctx.device)?,
         "ios" => ios::tap(x, y, ctx.simulator)?,
+        "harmony" => harmony::tap(x, y, ctx.device)?,
         "aurora" => aurora::tap(x, y, ctx.device)?,
         "desktop" => desktop::tap(x, y, ctx.companion_path)?,
         _ => bail!("Unsupported platform for tap"),
@@ -824,6 +900,7 @@ fn step_tap_text(ctx: &PlatformCtx<'_>, args: &[String]) -> Result<String> {
     match ctx.platform {
         "android" => android::tap_element(query, ctx.device)?,
         "ios" => ios::tap_element(query, ctx.simulator)?,
+        "harmony" => harmony::tap_element(query, ctx.device)?,
         "desktop" => desktop::tap_by_text(query, ctx.companion_path)?,
         _ => bail!("Unsupported platform for tap-text"),
     }
@@ -836,6 +913,7 @@ fn step_input(ctx: &PlatformCtx<'_>, args: &[String]) -> Result<String> {
     match ctx.platform {
         "android" => android::input_text(text, ctx.device)?,
         "ios" => ios::input_text(text, ctx.simulator)?,
+        "harmony" => harmony::input_text(text, ctx.device)?,
         "aurora" => aurora::input_text(text, ctx.device)?,
         "desktop" => desktop::input_text(text, ctx.companion_path)?,
         _ => bail!("Unsupported platform for input"),
@@ -853,6 +931,7 @@ fn step_swipe(ctx: &PlatformCtx<'_>, args: &[String]) -> Result<String> {
     match ctx.platform {
         "android" => android::swipe(x1, y1, x2, y2, duration, ctx.device)?,
         "ios" => ios::swipe(x1, y1, x2, y2, duration, ctx.simulator)?,
+        "harmony" => harmony::swipe(x1, y1, x2, y2, duration.into(), ctx.device)?,
         "aurora" => aurora::swipe(x1, y1, x2, y2, duration, ctx.device)?,
         _ => bail!("Unsupported platform for swipe"),
     }
@@ -865,6 +944,7 @@ fn step_find(ctx: &PlatformCtx<'_>, args: &[String]) -> Result<String> {
     let found = match ctx.platform {
         "android" => android::find_element(query, ctx.device)?,
         "ios" => ios::find_element(query, ctx.simulator)?,
+        "harmony" => harmony::find_element(query, ctx.device)?,
         _ => bail!("Unsupported platform for find"),
     };
     match found {
@@ -879,6 +959,7 @@ fn step_key(ctx: &PlatformCtx<'_>, args: &[String]) -> Result<String> {
     match ctx.platform {
         "android" => android::press_key(key, ctx.device)?,
         "ios" => ios::press_key(key, ctx.simulator)?,
+        "harmony" => harmony::press_key(key, ctx.device)?,
         "aurora" => aurora::press_key(key, ctx.device)?,
         "desktop" => desktop::press_key(key, ctx.companion_path)?,
         _ => bail!("Unsupported platform for key"),
@@ -892,6 +973,7 @@ fn step_launch(ctx: &PlatformCtx<'_>, args: &[String]) -> Result<String> {
     match ctx.platform {
         "android" => android::launch_app(package, ctx.device)?,
         "ios" => ios::launch_app(package, ctx.simulator)?,
+        "harmony" => harmony::launch_app(package, None, None, ctx.device)?,
         "aurora" => aurora::launch_app(package, ctx.device)?,
         "desktop" => desktop::launch_app(package, ctx.companion_path)?,
         _ => bail!("Unsupported platform for launch"),
@@ -905,6 +987,7 @@ fn step_stop(ctx: &PlatformCtx<'_>, args: &[String]) -> Result<String> {
     match ctx.platform {
         "android" => android::stop_app(package, ctx.device)?,
         "ios" => ios::stop_app(package, ctx.simulator)?,
+        "harmony" => harmony::stop_app(package, ctx.device)?,
         "aurora" => aurora::stop_app(package, ctx.device)?,
         "desktop" => desktop::stop_app(package, ctx.companion_path)?,
         _ => bail!("Unsupported platform for stop"),
@@ -916,6 +999,7 @@ fn step_screenshot(ctx: &PlatformCtx<'_>, _args: &[String]) -> Result<String> {
     let _data = match ctx.platform {
         "android" => android::screenshot(ctx.device)?,
         "ios" => ios::screenshot(ctx.simulator)?,
+        "harmony" => harmony::screenshot(ctx.device)?,
         "aurora" => aurora::screenshot(ctx.device)?,
         "desktop" => desktop::screenshot(ctx.companion_path)?,
         _ => bail!("Unsupported platform for screenshot"),
@@ -925,7 +1009,9 @@ fn step_screenshot(ctx: &PlatformCtx<'_>, _args: &[String]) -> Result<String> {
 
 fn step_wait(args: &[String]) -> Result<String> {
     require_args(args, 1, "wait")?;
-    let ms: u64 = args[0].parse().map_err(|_| anyhow::anyhow!("Invalid ms value"))?;
+    let ms: u64 = args[0]
+        .parse()
+        .map_err(|_| anyhow::anyhow!("Invalid ms value"))?;
     std::thread::sleep(std::time::Duration::from_millis(ms));
     Ok(format!("Waited {}ms", ms))
 }
@@ -934,6 +1020,9 @@ fn step_ui_dump(ctx: &PlatformCtx<'_>) -> Result<String> {
     match ctx.platform {
         "android" => android::ui_dump("json", ctx.device)?,
         "ios" => ios::ui_dump("json", ctx.simulator)?,
+        "harmony" => {
+            harmony::ui_dump("json", ctx.device)?;
+        }
         "desktop" => desktop::get_ui(ctx.companion_path)?,
         _ => bail!("Unsupported platform for ui-dump"),
     }
@@ -946,6 +1035,7 @@ fn step_open_url(ctx: &PlatformCtx<'_>, args: &[String]) -> Result<String> {
     match ctx.platform {
         "android" => android::open_url(url, ctx.device)?,
         "ios" => ios::open_url(url, ctx.simulator)?,
+        "harmony" => harmony::open_url(url, ctx.device)?,
         "aurora" => aurora::open_url(url, ctx.device)?,
         _ => bail!("Unsupported platform for open-url"),
     }
@@ -958,8 +1048,12 @@ fn step_open_url(ctx: &PlatformCtx<'_>, args: &[String]) -> Result<String> {
 
 fn step_sensor_location(ctx: &PlatformCtx<'_>, args: &[String]) -> Result<String> {
     require_args(args, 2, "sensor-location")?;
-    let lat: f64 = args[0].parse().map_err(|_| anyhow::anyhow!("Invalid latitude"))?;
-    let lon: f64 = args[1].parse().map_err(|_| anyhow::anyhow!("Invalid longitude"))?;
+    let lat: f64 = args[0]
+        .parse()
+        .map_err(|_| anyhow::anyhow!("Invalid latitude"))?;
+    let lon: f64 = args[1]
+        .parse()
+        .map_err(|_| anyhow::anyhow!("Invalid longitude"))?;
     let alt: f64 = args.get(2).and_then(|s| s.parse().ok()).unwrap_or(0.0);
     android::sensor_location(lat, lon, alt, ctx.device)?;
     Ok(format!("GPS mocked to ({}, {})", lat, lon))
@@ -981,9 +1075,17 @@ fn step_sensor_notifications(ctx: &PlatformCtx<'_>, args: &[String]) -> Result<S
 
 fn step_sensor_thermal(ctx: &PlatformCtx<'_>, args: &[String]) -> Result<String> {
     let reset = args.first().map(|s| s == "reset").unwrap_or(false);
-    let status = if reset { None } else { args.first().map(|s| s.as_str()) };
+    let status = if reset {
+        None
+    } else {
+        args.first().map(|s| s.as_str())
+    };
     android::sensor_thermal(status, reset, ctx.device)?;
-    Ok(if reset { "Thermal status reset".into() } else { format!("Thermal status set") })
+    Ok(if reset {
+        "Thermal status reset".into()
+    } else {
+        format!("Thermal status set")
+    })
 }
 
 // ---------------------------------------------------------------------------
@@ -1003,7 +1105,11 @@ fn step_network_connectivity(ctx: &PlatformCtx<'_>) -> Result<String> {
 
 fn step_network_proxy(ctx: &PlatformCtx<'_>, args: &[String]) -> Result<String> {
     let clear = args.first().map(|s| s == "clear").unwrap_or(false);
-    let host = if !clear { args.first().map(|s| s.as_str()) } else { None };
+    let host = if !clear {
+        args.first().map(|s| s.as_str())
+    } else {
+        None
+    };
     let port: Option<u16> = args.get(1).and_then(|s| s.parse().ok());
     android::network_proxy(host, port, clear, ctx.device)?;
     Ok("Network proxy updated".into())
@@ -1022,19 +1128,31 @@ fn step_network_airplane(ctx: &PlatformCtx<'_>, args: &[String]) -> Result<Strin
 
 fn step_permission_grant(ctx: &PlatformCtx<'_>, args: &[String]) -> Result<String> {
     require_args(args, 2, "permission-grant")?;
-    android::permission_grant(&args[0], &args[1], ctx.device)?;
+    match ctx.platform {
+        "android" => android::permission_grant(&args[0], &args[1], ctx.device)?,
+        "harmony" => harmony::permission_grant(&args[0], &args[1], ctx.device)?,
+        _ => bail!("Unsupported platform for permission-grant"),
+    }
     Ok(format!("Granted {} to {}", args[1], args[0]))
 }
 
 fn step_permission_revoke(ctx: &PlatformCtx<'_>, args: &[String]) -> Result<String> {
     require_args(args, 2, "permission-revoke")?;
-    android::permission_revoke(&args[0], &args[1], ctx.device)?;
+    match ctx.platform {
+        "android" => android::permission_revoke(&args[0], &args[1], ctx.device)?,
+        "harmony" => harmony::permission_revoke(&args[0], &args[1], ctx.device)?,
+        _ => bail!("Unsupported platform for permission-revoke"),
+    }
     Ok(format!("Revoked {} from {}", args[1], args[0]))
 }
 
 fn step_permission_reset(ctx: &PlatformCtx<'_>, args: &[String]) -> Result<String> {
     require_args(args, 1, "permission-reset")?;
-    android::permission_reset(&args[0], ctx.device)?;
+    match ctx.platform {
+        "android" => android::permission_reset(&args[0], ctx.device)?,
+        "harmony" => harmony::permission_reset(&args[0], ctx.device)?,
+        _ => bail!("Unsupported platform for permission-reset"),
+    }
     Ok(format!("Permissions reset for {}", args[0]))
 }
 
@@ -1049,7 +1167,9 @@ fn step_intent_start(ctx: &PlatformCtx<'_>, args: &[String]) -> Result<String> {
     let data = args.get(2).filter(|s| !s.is_empty()).map(|s| s.as_str());
     let category = args.get(3).filter(|s| !s.is_empty()).map(|s| s.as_str());
     let package = args.get(4).filter(|s| !s.is_empty()).map(|s| s.as_str());
-    android::intent_start(action, component, data, category, package, None, None, ctx.device)?;
+    android::intent_start(
+        action, component, data, category, package, None, None, ctx.device,
+    )?;
     Ok("Intent started".into())
 }
 
@@ -1088,8 +1208,18 @@ fn step_sandbox_prefs_read(ctx: &PlatformCtx<'_>, args: &[String]) -> Result<Str
 
 fn step_sandbox_prefs_write(ctx: &PlatformCtx<'_>, args: &[String]) -> Result<String> {
     require_args(args, 4, "sandbox-prefs-write")?;
-    android::sandbox_prefs_write(&args[0], &args[1], &args[2], &args[3], args.get(4).map(|s| s.as_str()), ctx.device)?;
-    Ok(format!("Preference written: {}.{} = {}", args[1], args[2], args[3]))
+    android::sandbox_prefs_write(
+        &args[0],
+        &args[1],
+        &args[2],
+        &args[3],
+        args.get(4).map(|s| s.as_str()),
+        ctx.device,
+    )?;
+    Ok(format!(
+        "Preference written: {}.{} = {}",
+        args[1], args[2], args[3]
+    ))
 }
 
 fn step_sandbox_sqlite_query(ctx: &PlatformCtx<'_>, args: &[String]) -> Result<String> {
@@ -1101,14 +1231,22 @@ fn step_sandbox_sqlite_query(ctx: &PlatformCtx<'_>, args: &[String]) -> Result<S
 fn step_sandbox_file_list(ctx: &PlatformCtx<'_>, args: &[String]) -> Result<String> {
     require_args(args, 1, "sandbox-file-list")?;
     let path = args.get(1).map(|s| s.as_str());
-    android::sandbox_file_list(&args[0], path, ctx.device)?;
+    match ctx.platform {
+        "android" => android::sandbox_file_list(&args[0], path, ctx.device)?,
+        "harmony" => harmony::sandbox_file_list(&args[0], path, ctx.device)?,
+        _ => bail!("Unsupported platform for sandbox-file-list"),
+    }
     Ok(format!("File list for {}", args[0]))
 }
 
 fn step_sandbox_file_read(ctx: &PlatformCtx<'_>, args: &[String]) -> Result<String> {
     require_args(args, 2, "sandbox-file-read")?;
     let max_bytes: Option<u64> = args.get(2).and_then(|s| s.parse().ok());
-    android::sandbox_file_read(&args[0], &args[1], max_bytes, ctx.device)?;
+    match ctx.platform {
+        "android" => android::sandbox_file_read(&args[0], &args[1], max_bytes, ctx.device)?,
+        "harmony" => harmony::sandbox_file_read(&args[0], &args[1], max_bytes, ctx.device)?,
+        _ => bail!("Unsupported platform for sandbox-file-read"),
+    }
     Ok(format!("File read: {}/{}", args[0], args[1]))
 }
 
@@ -1127,6 +1265,7 @@ fn step_ui_wait(ctx: &PlatformCtx<'_>, args: &[String]) -> Result<String> {
         let found = match ctx.platform {
             "android" => android::find_element(query, ctx.device)?,
             "ios" => ios::find_element(query, ctx.simulator)?,
+            "harmony" => harmony::find_element(query, ctx.device)?,
             _ => bail!("Unsupported platform for ui-wait"),
         };
         if found.is_some() {
@@ -1145,6 +1284,7 @@ fn step_ui_assert_visible(ctx: &PlatformCtx<'_>, args: &[String]) -> Result<Stri
     let found = match ctx.platform {
         "android" => android::find_element(query, ctx.device)?,
         "ios" => ios::find_element(query, ctx.simulator)?,
+        "harmony" => harmony::find_element(query, ctx.device)?,
         _ => bail!("Unsupported platform for ui-assert-visible"),
     };
     if found.is_none() {
@@ -1159,6 +1299,7 @@ fn step_ui_assert_gone(ctx: &PlatformCtx<'_>, args: &[String]) -> Result<String>
     let found = match ctx.platform {
         "android" => android::find_element(query, ctx.device)?,
         "ios" => ios::find_element(query, ctx.simulator)?,
+        "harmony" => harmony::find_element(query, ctx.device)?,
         _ => bail!("Unsupported platform for ui-assert-gone"),
     };
     if found.is_some() {
@@ -1310,8 +1451,16 @@ fn compact_ui_dump(ctx: &PlatformCtx<'_>) -> Result<String> {
                 .collect();
             Ok(parts.join(" | "))
         }
-        // iOS and desktop don't expose a cheap structured element list the
-        // same way Android does, so we return a placeholder.
+        "harmony" => {
+            let elements = harmony::get_ui_elements(ctx.device)?;
+            Ok(elements
+                .iter()
+                .take(20)
+                .map(|element| format!("{} \"{}\"", element.class, element.label()))
+                .collect::<Vec<_>>()
+                .join(" | "))
+        }
+        // iOS and desktop don't expose a cheap structured element list.
         _ => Ok("(ui dump not available for this platform in turbo mode)".into()),
     }
 }
@@ -1321,6 +1470,7 @@ fn capture_failure_screenshot(ctx: &PlatformCtx<'_>, step_num: usize) -> Result<
     let data = match ctx.platform {
         "android" => android::screenshot(ctx.device)?,
         "ios" => ios::screenshot(ctx.simulator)?,
+        "harmony" => harmony::screenshot(ctx.device)?,
         "aurora" => aurora::screenshot(ctx.device)?,
         "desktop" => desktop::screenshot(ctx.companion_path)?,
         _ => bail!("Cannot capture screenshot for platform"),
@@ -1382,11 +1532,25 @@ mod tests {
     fn test_allowed_actions_complete() {
         // All allowed actions must be present
         let expected = vec![
-            "tap", "tap-text", "input", "swipe", "find", "key",
-            "launch", "stop", "screenshot", "wait", "ui-dump", "open-url",
+            "tap",
+            "tap-text",
+            "input",
+            "swipe",
+            "find",
+            "key",
+            "launch",
+            "stop",
+            "screenshot",
+            "wait",
+            "ui-dump",
+            "open-url",
         ];
         for action in &expected {
-            assert!(ALLOWED_ACTIONS.contains(action), "Missing allowed action: {}", action);
+            assert!(
+                ALLOWED_ACTIONS.contains(action),
+                "Missing allowed action: {}",
+                action
+            );
         }
     }
 
