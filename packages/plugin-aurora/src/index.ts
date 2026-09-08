@@ -16,9 +16,9 @@ import { AuroraAdapter } from "./aurora-adapter.js";
 export const AURORA_PLUGIN_MANIFEST: PluginManifest = {
   id: "aurora",
   name: "Aurora OS",
-  version: "3.11.0",
+  version: "4.2.0",
   apiVersion: "1",
-  capabilities: ["screen", "input", "ui", "shell", "appLifecycle", "logs", "deviceMgmt"],
+  capabilities: ["screen", "input", "ui", "shell", "appLifecycle", "logs", "fileTransfer", "deviceMgmt"],
   description: "Aurora OS automation via audb (screen, input, app lifecycle, shell, logs)",
 };
 

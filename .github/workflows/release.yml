@@ -56,7 +56,7 @@ jobs:
     runs-on: ${{ matrix.runner }}
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Extract version from tag
         id: version
@@ -89,7 +89,7 @@ jobs:
   verify-plugin-versions:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Extract version from tag
         id: version
@@ -101,11 +101,11 @@ jobs:
           FAIL=0
           COUNT=0
           # Guard against silently checking fewer fields than the release
-          # profile promises (Stage 2 = 14). This is the 4.0.1 class: a new
+          # profile promises (Stage 2 = 23). This is the 4.0.1 class: a new
           # manifest is added but the verify loop is not extended, CI stays
           # green on a stale subset, and channels desync. If you add or remove
           # a version field below, update EXPECTED to match.
-          EXPECTED=14
+          EXPECTED=23
 
           PKG=$(jq -r '.version' package.json)
           MARKET=$(jq -r '.plugins[0].version' .claude-plugin/marketplace.json)
@@ -139,6 +139,28 @@ jobs:
             echo "packages/$p:                           $PV"
             if [ "$PV" != "$TAG" ]; then
               echo "::error::@mcp-devices/$p version ($PV) does not match tag ($TAG)"
+              FAIL=1
+            fi
+          done
+
+          # Runtime plugin manifests are consumer-visible and must match their
+          # package/product version. Keeping this separate from package.json
+          # catches stale manifest metadata such as the 3.11.0 -> 4.2.0 drift.
+          for f in \
+            packages/plugin-android/src/index.ts \
+            packages/plugin-ios/src/index.ts \
+            packages/plugin-web/src/index.ts \
+            packages/plugin-desktop/src/index.ts \
+            packages/plugin-aurora/src/index.ts \
+            packages/plugin-harmony/src/index.ts \
+            packages/plugin-debug/src/plugin.ts \
+            src/plugins/builtin-tools/index.ts \
+            src/plugins/repl/index.ts; do
+            RV=$(grep -m1 -E '^[[:space:]]*version: "[0-9]+\.[0-9]+\.[0-9]+"' "$f" | sed -E 's/.*"([^"]+)".*/\1/')
+            COUNT=$((COUNT + 1))
+            echo "$f runtime manifest:               $RV"
+            if [ "$RV" != "$TAG" ]; then
+              echo "::error::$f runtime manifest version ($RV) does not match tag ($TAG)"
               FAIL=1
             fi
           done
@@ -184,9 +206,9 @@ jobs:
       contents: read
       id-token: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: "20"
           registry-url: "https://registry.npmjs.org"
@@ -347,7 +369,7 @@ jobs:
           echo "Map: $MAP"
 
       - name: Checkout Homebrew tap
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           repository: ${{ matrix.repo }}
           token: ${{ secrets.HOMEBREW_TAP_TOKEN }}

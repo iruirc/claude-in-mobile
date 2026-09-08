@@ -15,7 +15,7 @@ impl DesktopPlugin {
             manifest: PluginManifest {
                 id: "desktop".into(),
                 name: "Desktop".into(),
-                version: "3.11.0".into(),
+                version: env!("CARGO_PKG_VERSION").into(),
                 api_version: "1".into(),
                 capabilities: vec![
                     Capability::Screen,
@@ -27,9 +27,7 @@ impl DesktopPlugin {
                     Capability::DeviceMgmt,
                 ],
                 tools: vec![],
-                description: Some(
-                    "Desktop automation via Compose companion JSON-RPC".into(),
-                ),
+                description: Some("Desktop automation via Compose companion JSON-RPC".into()),
             },
         }
     }

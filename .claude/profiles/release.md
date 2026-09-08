@@ -64,10 +64,10 @@ issue #43 ERR_REQUIRE_ESM пролежал между 3.10.3 и 3.11.2 и сло
    - publish-npm job должен иметь `id-token: write` permission, если
      `npm publish --provenance` используется. См. 3.11.2.
 
-### Стадия 2 — Версии и манифесты (14 полей — обязательно ВСЕ)
+### Стадия 2 — Версии и манифесты (23 поля — обязательно ВСЕ)
 
-`.github/workflows/release.yml` job `verify-plugin-versions` сверяет **14**
-версий с тегом и провалит релиз (→ `publish-npm` **skipped**, npm не выйдет)
+`.github/workflows/release.yml` job `verify-plugin-versions` сверяет **23**
+версии с тегом и провалит релиз (→ `publish-npm` **skipped**, npm не выйдет)
 если хоть одна не совпадает. 6 top-level манифеста:
 
 - [ ] `package.json` `"version"`
@@ -91,6 +91,20 @@ issue #43 ERR_REQUIRE_ESM пролежал между 3.10.3 и 3.11.2 и сло
 - [ ] `packages/plugin-harmony/package.json`
 - [ ] `packages/plugin-debug/package.json`
 - [ ] `packages/plugin-all/package.json`
+
+**+ 9 runtime plugin-манифестов**. Их `version` виден потребителям через
+plugin registry и тоже обязан == тег:
+
+- [ ] `packages/plugin-android/src/index.ts`
+- [ ] `packages/plugin-ios/src/index.ts`
+- [ ] `packages/plugin-web/src/index.ts`
+- [ ] `packages/plugin-desktop/src/index.ts`
+- [ ] `packages/plugin-aurora/src/index.ts`
+- [ ] `packages/plugin-harmony/src/index.ts`
+- [ ] `packages/plugin-debug/src/plugin.ts`
+- [ ] `src/plugins/builtin-tools/index.ts`
+- [ ] `src/plugins/repl/index.ts`
+
 
 Одной командой:
 `for p in android ios web desktop aurora harmony debug all; do jq --arg v "X.Y.Z" '.version=$v' packages/plugin-$p/package.json > /tmp/pp && mv /tmp/pp packages/plugin-$p/package.json; done`
@@ -143,7 +157,7 @@ CI его исключает.)
   падения (например, vite-resolve в store-tools) допустимы при условии
   что они уже были на main до релиза. Зафиксировать в report.
 - [ ] `cd cli && cargo build --release` — чисто.
-- [ ] `cd cli && cargo test --lib && cargo test --test setup_grok` — все Rust тесты зелёные.
+- [ ] `cd cli && cargo test --lib && cargo test --test setup_grok && cargo test --test repl_observability && cargo test --test repl_live_tui && cargo test --test harmony_cli` — все Rust тесты зелёные.
 
 ### Стадия 5 — Smoke-тесты бинарей (защита от регрессий типа #43, #44)
 
@@ -217,7 +231,7 @@ CI его исключает.)
 | Job                       | Что делает                          | Что может упасть                              |
 |---------------------------|--------------------------------------|------------------------------------------------|
 | build (arm64, x86_64)     | `cargo build --release`              | Rust compile error                             |
-| verify-plugin-versions    | сверка 14 манифестов                 | Не bump-нули один из манифестов (стадия 2)     |
+| verify-plugin-versions    | сверка 23 версий/манифестов          | Не bump-нули одну из версий или манифестов      |
 | release                   | создаёт GitHub Release с tar.gz      | Permissions                                    |
 | publish-npm               | `npm publish --provenance`           | Build script / id-token permission (3.11.1-2)  |
 | update-homebrew           | патчит Formula в внешнем tap         | `HOMEBREW_TAP_TOKEN` истёк                     |

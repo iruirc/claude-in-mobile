@@ -23,7 +23,7 @@ describe("ReplPlugin manifest specifics", () => {
     expect(REPL_PLUGIN_MANIFEST.capabilities).not.toContain("screen");
   });
 
-  it("registers all 8 MCP tools in manifest.tools (v4.1.0 adds repl_resize)", () => {
+  it("registers all 8 MCP tools in manifest.tools", () => {
     expect(REPL_PLUGIN_MANIFEST.tools).toEqual([
       "repl_spawn",
       "repl_send",
@@ -43,7 +43,7 @@ describe("ReplPlugin manifest specifics", () => {
     expect(REPL_PLUGIN_MANIFEST.apiVersion).toBe("1");
   });
 
-  it("version is 4.1.0 (TUI observability release)", () => {
-    expect(REPL_PLUGIN_MANIFEST.version).toBe("4.1.0");
+  it("matches the product release version", () => {
+    expect(REPL_PLUGIN_MANIFEST.version).toBe("4.2.0");
   });
 });

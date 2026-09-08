@@ -15,7 +15,7 @@ impl AuroraPlugin {
             manifest: PluginManifest {
                 id: "aurora".into(),
                 name: "Aurora OS".into(),
-                version: "3.11.0".into(),
+                version: env!("CARGO_PKG_VERSION").into(),
                 api_version: "1".into(),
                 capabilities: vec![
                     Capability::Screen,

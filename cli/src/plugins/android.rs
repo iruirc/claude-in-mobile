@@ -15,7 +15,7 @@ impl AndroidPlugin {
             manifest: PluginManifest {
                 id: "android".into(),
                 name: "Android".into(),
-                version: "3.11.0".into(),
+                version: env!("CARGO_PKG_VERSION").into(),
                 api_version: "1".into(),
                 capabilities: vec![
                     Capability::Screen,
@@ -29,8 +29,7 @@ impl AndroidPlugin {
                 ],
                 tools: vec![],
                 description: Some(
-                    "Android automation via ADB (screen, input, app lifecycle, shell, logs)"
-                        .into(),
+                    "Android automation via ADB (screen, input, app lifecycle, shell, logs)".into(),
                 ),
             },
         }

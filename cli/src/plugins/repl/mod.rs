@@ -31,7 +31,7 @@ impl ReplPlugin {
             manifest: PluginManifest {
                 id: "repl".into(),
                 name: "REPL".into(),
-                version: "4.1.0".into(),
+                version: env!("CARGO_PKG_VERSION").into(),
                 api_version: "1".into(),
                 capabilities: vec![Capability::Terminal, Capability::Input],
                 tools: vec![
@@ -87,8 +87,12 @@ mod tests {
     fn manifest_tool_count_and_version() {
         let p = ReplPlugin::new();
         let manifest = p.manifest();
-        assert_eq!(manifest.tools.len(), 8, "Expected 8 tools (7 legacy + repl_resize)");
-        assert_eq!(manifest.version, "4.1.0");
+        assert_eq!(
+            manifest.tools.len(),
+            8,
+            "Expected 8 tools (7 legacy + repl_resize)"
+        );
+        assert_eq!(manifest.version, env!("CARGO_PKG_VERSION"));
         assert_eq!(manifest.api_version, "1");
     }
 
