@@ -176,7 +176,7 @@ export class WDAManager {
         "xcodebuild build-for-testing -project WebDriverAgent.xcodeproj " +
         `-scheme WebDriverAgentRunner -destination '${destination}' `
         + "CODE_SIGNING_ALLOWED=NO",
-        { cwd: wdaPath, timeout: this.buildTimeout, stdio: "pipe" },
+        { cwd: wdaPath, timeout: this.buildTimeout, stdio: "pipe", maxBuffer: 50 * 1024 * 1024 },
       );
     } catch (error) {
       const details = error as { stderr?: Buffer | string; stdout?: Buffer | string; message?: string };

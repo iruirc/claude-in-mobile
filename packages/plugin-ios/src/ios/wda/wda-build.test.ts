@@ -13,7 +13,6 @@ import { WDAManager } from "./wda-manager.js";
 
 interface BuildHarness {
   derivedDataRoot: string;
-  buildTimeout: number;
   buildWDAIfNeeded(wdaPath: string): Promise<void>;
 }
 
@@ -36,7 +35,6 @@ describe("WDAManager build path", () => {
   let derivedDataRoot: string;
   let buildArgsLog: string;
   let devicesJson: string;
-  let listappsOut: string;
   let savedPath: string | undefined;
 
   beforeEach(() => {
@@ -45,7 +43,6 @@ describe("WDAManager build path", () => {
     derivedDataRoot = join(workDir, "DerivedData");
     buildArgsLog = join(workDir, "xcodebuild-args");
     devicesJson = join(workDir, "devices.json");
-    listappsOut = join(workDir, "listapps.txt");
 
     mkdirSync(join(wdaPath, "WebDriverAgent.xcodeproj"), { recursive: true });
     // appium-webdriveragent ships `build/` as its TypeScript output — always present,
@@ -58,11 +55,7 @@ describe("WDAManager build path", () => {
     writeFileSync(join(bin, "xcodebuild"), `#!/bin/sh\necho "$@" > "${buildArgsLog}"\nexit 0\n`);
     chmodSync(join(bin, "xcodebuild"), 0o755);
     writeFileSync(devicesJson, DEVICES_JSON);
-    writeFileSync(listappsOut, "");
-    writeFileSync(
-      join(bin, "xcrun"),
-      `#!/bin/sh\ncase "$*" in\n  *listapps*) cat "${listappsOut}" ;;\n  *) cat "${devicesJson}" ;;\nesac\n`,
-    );
+    writeFileSync(join(bin, "xcrun"), `#!/bin/sh\ncat "${devicesJson}"\n`);
     chmodSync(join(bin, "xcrun"), 0o755);
 
     savedPath = process.env.PATH;
@@ -123,5 +116,19 @@ describe("WDAManager build path", () => {
     await harness(manager).buildWDAIfNeeded(wdaPath);
 
     expect(readFileSync(buildArgsLog, "utf8")).toContain("CODE_SIGNING_ALLOWED=NO");
+  });
+
+  // A cold `build-for-testing` writes ~1 MB of progress to stdout; execSync's default
+  // maxBuffer is exactly that, and Node SIGTERMs the child once it is exceeded.
+  it("survives a build whose output exceeds the default execSync buffer", async () => {
+    writeFileSync(
+      join(workDir, "bin", "xcodebuild"),
+      `#!/bin/sh\nawk 'BEGIN { for (i = 0; i < 40000; i++) print "xcodebuild progress line padding" }'\nexit 0\n`,
+    );
+    chmodSync(join(workDir, "bin", "xcodebuild"), 0o755);
+    const manager = new WDAManager();
+    harness(manager).derivedDataRoot = derivedDataRoot;
+
+    await expect(harness(manager).buildWDAIfNeeded(wdaPath)).resolves.toBeUndefined();
   });
 });
