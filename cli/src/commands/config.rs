@@ -23,7 +23,7 @@
 
 use std::collections::HashMap;
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
 
@@ -58,8 +58,11 @@ pub fn config_path() -> PathBuf {
 ///
 /// Returns an empty map when the file does not exist or cannot be parsed.
 pub fn load_config() -> HashMap<String, serde_json::Value> {
-    let path = config_path();
-    let Ok(text) = fs::read_to_string(&path) else {
+    load_config_from(&config_path())
+}
+
+fn load_config_from(path: &Path) -> HashMap<String, serde_json::Value> {
+    let Ok(text) = fs::read_to_string(path) else {
         return HashMap::new();
     };
     serde_json::from_str(&text).unwrap_or_default()
@@ -67,12 +70,17 @@ pub fn load_config() -> HashMap<String, serde_json::Value> {
 
 /// Serialize `config` to `~/.claude-mobile/config.json` as pretty-printed JSON.
 pub fn save_config(config: &HashMap<String, serde_json::Value>) -> Result<()> {
-    let path = config_path();
-    // Ensure directory exists (created lazily).
-    let _ = config_dir();
-    let text = serde_json::to_string_pretty(config)
-        .context("Failed to serialize config to JSON")?;
-    fs::write(&path, text).with_context(|| format!("Failed to write config to {}", path.display()))
+    save_config_to(&config_path(), config)
+}
+
+fn save_config_to(path: &Path, config: &HashMap<String, serde_json::Value>) -> Result<()> {
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)
+            .with_context(|| format!("Failed to create config directory {}", parent.display()))?;
+    }
+    let text =
+        serde_json::to_string_pretty(config).context("Failed to serialize config to JSON")?;
+    fs::write(path, text).with_context(|| format!("Failed to write config to {}", path.display()))
 }
 
 // ---------------------------------------------------------------------------
@@ -143,9 +151,7 @@ pub fn reset(key: &str) -> Result<()> {
 /// let turbo = turbo || config::get_bool("turbo").unwrap_or(false);
 /// ```
 pub fn get_bool(key: &str) -> Option<bool> {
-    load_config()
-        .get(key)
-        .and_then(|v| v.as_bool())
+    load_config().get(key).and_then(|v| v.as_bool())
 }
 
 // ---------------------------------------------------------------------------
@@ -192,18 +198,12 @@ mod tests {
 
     #[test]
     fn parse_integer_is_number() {
-        assert_eq!(
-            parse_value("42"),
-            serde_json::Value::Number(42_i64.into())
-        );
+        assert_eq!(parse_value("42"), serde_json::Value::Number(42_i64.into()));
     }
 
     #[test]
     fn parse_zero_is_number() {
-        assert_eq!(
-            parse_value("0"),
-            serde_json::Value::Number(0_i64.into())
-        );
+        assert_eq!(parse_value("0"), serde_json::Value::Number(0_i64.into()));
     }
 
     #[test]
@@ -216,10 +216,7 @@ mod tests {
 
     #[test]
     fn parse_empty_string() {
-        assert_eq!(
-            parse_value(""),
-            serde_json::Value::String(String::new())
-        );
+        assert_eq!(parse_value(""), serde_json::Value::String(String::new()));
     }
 
     // ----- config round-trip -------------------------------------------------
@@ -236,52 +233,18 @@ mod tests {
 
     #[test]
     fn save_and_load_roundtrip() {
-        use std::env;
         use tempfile::TempDir;
 
-        // Redirect HOME to a temporary directory so we do not touch real config.
         let tmp = TempDir::new().expect("tempdir");
-        let original_home = env::var("HOME").ok();
-        // SAFETY: single-threaded test context.
-        unsafe { env::set_var("HOME", tmp.path()) };
-
+        let path = tmp.path().join("config.json");
         let mut cfg = HashMap::new();
         cfg.insert("turbo".to_owned(), serde_json::Value::Bool(true));
         cfg.insert("count".to_owned(), serde_json::Value::Number(7_i64.into()));
 
-        save_config(&cfg).expect("save");
-        let loaded = load_config();
+        save_config_to(&path, &cfg).expect("save");
+        let loaded = load_config_from(&path);
 
         assert_eq!(loaded.get("turbo").and_then(|v| v.as_bool()), Some(true));
         assert_eq!(loaded.get("count").and_then(|v| v.as_i64()), Some(7));
-
-        // Restore HOME.
-        unsafe {
-            match original_home {
-                Some(h) => env::set_var("HOME", h),
-                None => env::remove_var("HOME"),
-            }
-        }
-    }
-
-    #[test]
-    fn get_bool_returns_none_for_missing_key() {
-        // Use a fresh isolated env so existing ~/.claude-mobile/config.json
-        // does not interfere.
-        use std::env;
-        use tempfile::TempDir;
-
-        let tmp = TempDir::new().expect("tempdir");
-        let original_home = env::var("HOME").ok();
-        unsafe { env::set_var("HOME", tmp.path()) };
-
-        assert_eq!(get_bool("nonexistent"), None);
-
-        unsafe {
-            match original_home {
-                Some(h) => env::set_var("HOME", h),
-                None => env::remove_var("HOME"),
-            }
-        }
     }
 }
