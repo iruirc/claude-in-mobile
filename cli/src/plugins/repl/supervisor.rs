@@ -5,7 +5,8 @@
 
 use std::collections::HashMap;
 use std::path::PathBuf;
-use std::sync::{Arc, Mutex};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex, Weak};
 use std::time::UNIX_EPOCH;
 
 use anyhow::{anyhow, bail, Result};
@@ -13,8 +14,10 @@ use serde::Serialize;
 
 use super::expect::{ExpectOutcome, ExpectRules};
 use super::prompt_profiles::{compile, pick_profile};
-use super::session::{FilmstripFrame, PtySession, SessionState, SessionStatus, SpawnOptions};
-use super::session::FILMSTRIP_CAP;
+use super::session::{
+    ExitCallback, FilmstripFrame, PtySession, SessionState, SessionStatus, SpawnOptions,
+    FILMSTRIP_CAP,
+};
 
 // ---------------------------------------------------------------------------
 // Internal handle
@@ -24,18 +27,30 @@ use super::session::FILMSTRIP_CAP;
 /// (send/key/expect/kill/resize); `state` is a shared clone of the session's
 /// read state so `list`/`snapshot` can report status/screen WITHOUT blocking
 /// on a concurrent long-running `expect` that holds `session`.
+const MAX_SESSIONS: usize = 16;
+
+struct Generation {
+    id: u64,
+    exited: Arc<AtomicBool>,
+    terminating: AtomicBool,
+}
+
 struct SessionHandle {
     cmd: String,
     state: Arc<Mutex<SessionState>>,
     session: Mutex<PtySession>,
+    generation: Arc<Generation>,
 }
 
-// ---------------------------------------------------------------------------
-// Public request types
-// ---------------------------------------------------------------------------
+struct SupervisorInner {
+    sessions: HashMap<String, Arc<SessionHandle>>,
+    spawning: HashMap<String, Arc<Generation>>,
+    next_generation: u64,
+    closed: bool,
+}
 
 pub struct Supervisor {
-    sessions: Mutex<HashMap<String, Arc<SessionHandle>>>,
+    inner: Arc<Mutex<SupervisorInner>>,
 }
 
 #[derive(Debug, Clone)]
@@ -156,55 +171,142 @@ impl Default for Supervisor {
 impl Supervisor {
     pub fn new() -> Self {
         Self {
-            sessions: Mutex::new(HashMap::new()),
+            inner: Arc::new(Mutex::new(SupervisorInner {
+                sessions: HashMap::new(),
+                spawning: HashMap::new(),
+                next_generation: 0,
+                closed: false,
+            })),
         }
     }
 
     fn handle(&self, id: &str) -> Result<Arc<SessionHandle>> {
-        self.sessions
+        self.inner
             .lock()
             .unwrap()
+            .sessions
             .get(id)
             .cloned()
             .ok_or_else(|| anyhow!("no session: {id}"))
     }
 
     pub fn spawn(&self, req: SpawnRequest) -> Result<SpawnResult> {
-        {
-            let map = self.sessions.lock().unwrap();
-            if let Some(existing) = map.get(&req.id) {
-                if existing.session.lock().unwrap().status() != SessionStatus::Dead {
-                    bail!("session already exists: {}", req.id);
-                }
+        let generation = {
+            let mut inner = self.inner.lock().unwrap();
+            if inner.closed {
+                bail!("REPL supervisor is shutting down");
             }
-        }
-        let env: Vec<(String, String)> = req.env.clone();
+            if inner.sessions.contains_key(&req.id) || inner.spawning.contains_key(&req.id) {
+                bail!("session already exists: {}", req.id);
+            }
+            if inner.sessions.len() + inner.spawning.len() >= MAX_SESSIONS {
+                bail!("session limit reached: {MAX_SESSIONS}");
+            }
+            inner.next_generation = inner.next_generation.wrapping_add(1);
+            let generation = Arc::new(Generation {
+                id: inner.next_generation,
+                exited: Arc::new(AtomicBool::new(false)),
+                terminating: AtomicBool::new(false),
+            });
+            inner
+                .spawning
+                .insert(req.id.clone(), Arc::clone(&generation));
+            generation
+        };
+
+        let weak_inner: Weak<Mutex<SupervisorInner>> = Arc::downgrade(&self.inner);
+        let callback_id = req.id.clone();
+        let callback_generation = Arc::clone(&generation);
+        let on_exit: ExitCallback = Arc::new(move || {
+            callback_generation.exited.store(true, Ordering::Release);
+            let Some(inner) = weak_inner.upgrade() else {
+                return;
+            };
+            let removed = {
+                let mut inner = inner.lock().unwrap();
+                if inner
+                    .spawning
+                    .get(&callback_id)
+                    .is_some_and(|current| current.id == callback_generation.id)
+                {
+                    inner.spawning.remove(&callback_id);
+                }
+                if callback_generation.terminating.load(Ordering::Acquire) {
+                    return;
+                }
+                if inner
+                    .sessions
+                    .get(&callback_id)
+                    .is_some_and(|handle| handle.generation.id == callback_generation.id)
+                {
+                    inner.sessions.remove(&callback_id)
+                } else {
+                    None
+                }
+            };
+            drop(removed);
+        });
+
+        let env = req.env.clone();
         let cast_path = req.cast_path.clone();
-
-        // Spawn outside the map lock — openpty/fork must not block other ops.
-        let session = PtySession::spawn(SpawnOptions {
-            id: req.id.clone(),
-            cmd: &req.cmd,
-            cwd: req.cwd.as_deref(),
-            env: &env,
-            cols: req.cols,
-            rows: req.rows,
-            shell: req.shell,
-            cast_path: cast_path.clone(),
-        })?;
-
-        let cast_file = cast_path.map(|p| p.to_string_lossy().into_owned());
+        let session = match PtySession::spawn_with_lifecycle(
+            SpawnOptions {
+                id: req.id.clone(),
+                cmd: &req.cmd,
+                cwd: req.cwd.as_deref(),
+                env: &env,
+                cols: req.cols,
+                rows: req.rows,
+                shell: req.shell,
+                cast_path: cast_path.clone(),
+            },
+            Arc::clone(&generation.exited),
+            Some(on_exit),
+        ) {
+            Ok(session) => session,
+            Err(error) => {
+                let mut inner = self.inner.lock().unwrap();
+                if inner
+                    .spawning
+                    .get(&req.id)
+                    .is_some_and(|current| current.id == generation.id)
+                {
+                    inner.spawning.remove(&req.id);
+                }
+                return Err(error);
+            }
+        };
 
         let handle = Arc::new(SessionHandle {
             cmd: session.cmd.clone(),
             state: session.state(),
             session: Mutex::new(session),
+            generation: Arc::clone(&generation),
         });
-        self.sessions.lock().unwrap().insert(req.id.clone(), handle);
+        let accepted = {
+            let mut inner = self.inner.lock().unwrap();
+            if inner
+                .spawning
+                .get(&req.id)
+                .is_some_and(|current| current.id == generation.id)
+            {
+                inner.spawning.remove(&req.id);
+            }
+            if inner.closed || generation.exited.load(Ordering::Acquire) {
+                false
+            } else {
+                inner.sessions.insert(req.id.clone(), Arc::clone(&handle));
+                true
+            }
+        };
+        if !accepted {
+            let _ = handle.session.lock().unwrap().kill();
+            bail!("session exited before registration: {}", req.id);
+        }
 
         Ok(SpawnResult {
             id: req.id,
-            cast_file,
+            cast_file: cast_path.map(|value| value.to_string_lossy().into_owned()),
         })
     }
 
@@ -283,7 +385,8 @@ impl Supervisor {
                 let cap = n.min(FILMSTRIP_CAP);
                 let total = st.filmstrip.len();
                 let start = total.saturating_sub(cap);
-                let dtos: Vec<FilmstripFrameDto> = st.filmstrip
+                let dtos: Vec<FilmstripFrameDto> = st
+                    .filmstrip
                     .iter()
                     .skip(start)
                     .map(FilmstripFrameDto::from)
@@ -306,8 +409,12 @@ impl Supervisor {
 
     pub fn list(&self) -> Vec<SessionInfo> {
         let handles: Vec<(String, Arc<SessionHandle>)> = {
-            let map = self.sessions.lock().unwrap();
-            map.iter().map(|(k, v)| (k.clone(), Arc::clone(v))).collect()
+            let inner = self.inner.lock().unwrap();
+            inner
+                .sessions
+                .iter()
+                .map(|(key, value)| (key.clone(), Arc::clone(value)))
+                .collect()
         };
         handles
             .iter()
@@ -324,9 +431,31 @@ impl Supervisor {
     }
 
     pub fn kill(&self, id: &str) -> Result<()> {
-        let h = self.handle(id)?;
-        let mut s = h.session.lock().unwrap();
-        s.kill()
+        let handle = {
+            let inner = self.inner.lock().unwrap();
+            let handle = inner
+                .sessions
+                .get(id)
+                .cloned()
+                .ok_or_else(|| anyhow!("no session: {id}"))?;
+            handle.generation.terminating.store(true, Ordering::Release);
+            handle
+        };
+        let result = handle.session.lock().unwrap().kill();
+        let removed = {
+            let mut inner = self.inner.lock().unwrap();
+            if inner
+                .sessions
+                .get(id)
+                .is_some_and(|current| current.generation.id == handle.generation.id)
+            {
+                inner.sessions.remove(id)
+            } else {
+                None
+            }
+        };
+        drop(removed);
+        result
     }
 
     /// Resize the PTY and vt100 grid for a live session.
@@ -340,12 +469,32 @@ impl Supervisor {
     }
 
     pub fn drop_session(&self, id: &str) -> Result<()> {
-        self.sessions
-            .lock()
-            .unwrap()
-            .remove(id)
-            .ok_or_else(|| anyhow!("no session: {id}"))?;
-        Ok(())
+        self.kill(id)
+    }
+
+    pub fn shutdown(&self) {
+        let handles = {
+            let mut inner = self.inner.lock().unwrap();
+            inner.closed = true;
+            inner.spawning.clear();
+            inner
+                .sessions
+                .drain()
+                .map(|(_, handle)| {
+                    handle.generation.terminating.store(true, Ordering::Release);
+                    handle
+                })
+                .collect::<Vec<_>>()
+        };
+        for handle in handles {
+            let _ = handle.session.lock().unwrap().kill();
+        }
+    }
+}
+
+impl Drop for Supervisor {
+    fn drop(&mut self) {
+        self.shutdown();
     }
 }
 
@@ -374,26 +523,26 @@ impl Supervisor {
 pub fn key_bytes(key: &str) -> Result<&'static [u8]> {
     let bytes: &[u8] = match key {
         // ── pre-existing keys (must not change) ──────────────────────────────
-        "enter"   => b"\r",
-        "ctrl-c"  => &[0x03],
-        "ctrl-d"  => &[0x04],
-        "ctrl-z"  => &[0x1a],
-        "tab"     => b"\t",
-        "up"      => b"\x1b[A",
-        "down"    => b"\x1b[B",
-        "left"    => b"\x1b[D",
-        "right"   => b"\x1b[C",
+        "enter" => b"\r",
+        "ctrl-c" => &[0x03],
+        "ctrl-d" => &[0x04],
+        "ctrl-z" => &[0x1a],
+        "tab" => b"\t",
+        "up" => b"\x1b[A",
+        "down" => b"\x1b[B",
+        "left" => b"\x1b[D",
+        "right" => b"\x1b[C",
 
         // ── editing / navigation ─────────────────────────────────────────────
-        "backspace"        => &[0x7f],
-        "esc" | "escape"   => &[0x1b],
-        "delete"           => b"\x1b[3~",
-        "home"             => b"\x1b[H",
-        "end"              => b"\x1b[F",
-        "pageup"           => b"\x1b[5~",
-        "pagedown"         => b"\x1b[6~",
-        "shift-tab"        => b"\x1b[Z",
-        "space"            => b" ",
+        "backspace" => &[0x7f],
+        "esc" | "escape" => &[0x1b],
+        "delete" => b"\x1b[3~",
+        "home" => b"\x1b[H",
+        "end" => b"\x1b[F",
+        "pageup" => b"\x1b[5~",
+        "pagedown" => b"\x1b[6~",
+        "shift-tab" => b"\x1b[Z",
+        "space" => b" ",
 
         // ── ctrl combos ──────────────────────────────────────────────────────
         "ctrl-a" => &[0x01],
@@ -425,28 +574,32 @@ fn tail_lines_of(full: &str, max_lines: usize) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::Arc;
+    use std::sync::{Arc, Barrier};
     use std::thread;
     use std::thread::sleep;
     use std::time::{Duration, Instant};
 
-    fn spawn_bash(sup: &Supervisor, id: &str) {
-        sup.spawn(SpawnRequest {
+    fn bash_request(id: &str) -> SpawnRequest {
+        SpawnRequest {
             id: id.into(),
-            cmd: "bash --norc --noprofile".into(),
+            cmd: "/bin/bash --norc --noprofile".into(),
             cwd: None,
             env: vec![
-                ("PATH".into(), std::env::var("PATH").unwrap_or_default()),
-                ("HOME".into(), std::env::var("HOME").unwrap_or_default()),
+                ("PATH".into(), "/usr/bin:/bin".into()),
+                ("HOME".into(), "/tmp".into()),
                 ("PS1".into(), "$ ".into()),
+                ("BASH_SILENCE_DEPRECATION_WARNING".into(), "1".into()),
             ],
             cols: 80,
             rows: 24,
             prompt_regex: None,
             shell: false,
             cast_path: None,
-        })
-        .expect("spawn bash failed");
+        }
+    }
+
+    fn spawn_bash(sup: &Supervisor, id: &str) {
+        sup.spawn(bash_request(id)).expect("spawn bash failed");
     }
 
     #[test]
@@ -462,13 +615,15 @@ mod tests {
         ));
         sup.send("b1", "echo mcp-devices", true).unwrap();
         let after = sup
-            .expect("b1", Some(r"\$ $"), 300, 5_000)
-            .expect("expect after echo failed");
-        assert!(matches!(after, ExpectOutcome::PromptMatched | ExpectOutcome::Idle));
-        let snap = sup
-            .snapshot("b1", SnapshotMode::Grid, None, None)
-            .unwrap();
-        assert!(snap.screen.contains("mcp-devices"), "snapshot: {}", snap.screen);
+            .expect("b1", Some("mcp-devices"), 300, 5_000)
+            .expect("expect echo output failed");
+        assert!(matches!(after, ExpectOutcome::PromptMatched));
+        let snap = sup.snapshot("b1", SnapshotMode::Grid, None, None).unwrap();
+        assert!(
+            snap.screen.contains("mcp-devices"),
+            "snapshot: {}",
+            snap.screen
+        );
         sup.kill("b1").unwrap();
     }
 
@@ -503,19 +658,65 @@ mod tests {
     }
 
     #[test]
-    fn kill_marks_session_dead() {
+    fn kill_removes_session_and_rejects_follow_up_operations() {
         let sup = Supervisor::new();
         spawn_bash(&sup, "b4");
         sup.kill("b4").unwrap();
-        sleep(Duration::from_millis(100));
-        let snap = sup.snapshot("b4", SnapshotMode::Grid, None, None).unwrap();
-        assert_eq!(snap.status, SessionStatus::Dead);
+
+        assert!(sup.list().is_empty());
+        assert!(sup.snapshot("b4", SnapshotMode::Grid, None, None).is_err());
+        assert!(sup.send("b4", "x", true).is_err());
+        assert!(sup.resize("b4", 80, 24).is_err());
+        assert!(sup.kill("b4").is_err());
+    }
+
+    #[test]
+    fn concurrent_duplicate_spawn_has_one_winner() {
+        let sup = Arc::new(Supervisor::new());
+        let barrier = Arc::new(Barrier::new(3));
+        let mut workers = Vec::new();
+        for _ in 0..2 {
+            let sup = Arc::clone(&sup);
+            let barrier = Arc::clone(&barrier);
+            workers.push(thread::spawn(move || {
+                barrier.wait();
+                sup.spawn(bash_request("same")).is_ok()
+            }));
+        }
+        barrier.wait();
+        let successes = workers
+            .into_iter()
+            .map(|worker| worker.join().unwrap())
+            .filter(|success| *success)
+            .count();
+
+        assert_eq!(successes, 1);
+        sup.kill("same").unwrap();
+    }
+
+    #[test]
+    fn natural_exit_removes_session_and_allows_id_reuse() {
+        let sup = Supervisor::new();
+        let mut request = bash_request("short");
+        request.cmd = "sleep 0.05".into();
+        request.shell = true;
+        sup.spawn(request).unwrap();
+        let deadline = Instant::now() + Duration::from_secs(2);
+        while !sup.list().is_empty() && Instant::now() < deadline {
+            sleep(Duration::from_millis(10));
+        }
+
+        assert!(sup.list().is_empty());
+        spawn_bash(&sup, "short");
+        sup.kill("short").unwrap();
     }
 
     #[test]
     fn unknown_session_errors() {
         let sup = Supervisor::new();
-        assert!(sup.snapshot("nope", SnapshotMode::Grid, None, None).is_err());
+        assert!(sup
+            .snapshot("nope", SnapshotMode::Grid, None, None)
+            .is_err());
         assert!(sup.send("nope", "x", true).is_err());
         assert!(sup.kill("nope").is_err());
     }
@@ -590,30 +791,29 @@ mod tests {
     #[test]
     fn key_bytes_new_keys() {
         let cases: &[(&str, &[u8])] = &[
-            ("backspace",  &[0x7f]),
-            ("esc",        &[0x1b]),
-            ("escape",     &[0x1b]),
-            ("delete",     b"\x1b[3~"),
-            ("home",       b"\x1b[H"),
-            ("end",        b"\x1b[F"),
-            ("pageup",     b"\x1b[5~"),
-            ("pagedown",   b"\x1b[6~"),
-            ("shift-tab",  b"\x1b[Z"),
-            ("space",      b" "),
-            ("ctrl-a",     &[0x01]),
-            ("ctrl-e",     &[0x05]),
-            ("ctrl-u",     &[0x15]),
-            ("ctrl-k",     &[0x0b]),
-            ("ctrl-w",     &[0x17]),
-            ("ctrl-l",     &[0x0c]),
-            ("ctrl-o",     &[0x0f]),
-            ("ctrl-p",     &[0x10]),
-            ("ctrl-n",     &[0x0e]),
-            ("ctrl-r",     &[0x12]),
+            ("backspace", &[0x7f]),
+            ("esc", &[0x1b]),
+            ("escape", &[0x1b]),
+            ("delete", b"\x1b[3~"),
+            ("home", b"\x1b[H"),
+            ("end", b"\x1b[F"),
+            ("pageup", b"\x1b[5~"),
+            ("pagedown", b"\x1b[6~"),
+            ("shift-tab", b"\x1b[Z"),
+            ("space", b" "),
+            ("ctrl-a", &[0x01]),
+            ("ctrl-e", &[0x05]),
+            ("ctrl-u", &[0x15]),
+            ("ctrl-k", &[0x0b]),
+            ("ctrl-w", &[0x17]),
+            ("ctrl-l", &[0x0c]),
+            ("ctrl-o", &[0x0f]),
+            ("ctrl-p", &[0x10]),
+            ("ctrl-n", &[0x0e]),
+            ("ctrl-r", &[0x12]),
         ];
         for (name, expected) in cases {
-            let got = key_bytes(name)
-                .unwrap_or_else(|e| panic!("key_bytes({name:?}) failed: {e}"));
+            let got = key_bytes(name).unwrap_or_else(|e| panic!("key_bytes({name:?}) failed: {e}"));
             assert_eq!(
                 got, *expected,
                 "key {name:?}: expected {expected:x?}, got {got:x?}",
@@ -647,9 +847,7 @@ mod tests {
         let sup = Supervisor::new();
         spawn_bash(&sup, "raw1");
         sleep(Duration::from_millis(200));
-        let snap = sup
-            .snapshot("raw1", SnapshotMode::Raw, None, None)
-            .unwrap();
+        let snap = sup.snapshot("raw1", SnapshotMode::Raw, None, None).unwrap();
         assert_eq!(snap.screen, "", "mode:raw must set screen to empty string");
         assert!(snap.raw.is_some(), "mode:raw must include raw field");
         sup.kill("raw1").unwrap();
@@ -664,7 +862,10 @@ mod tests {
             .snapshot("grid1", SnapshotMode::Grid, None, None)
             .unwrap();
         assert!(snap.raw.is_none(), "mode:grid must not include raw");
-        assert!(snap.frames.is_none(), "mode:grid without history must not include frames");
+        assert!(
+            snap.frames.is_none(),
+            "mode:grid without history must not include frames"
+        );
         sup.kill("grid1").unwrap();
     }
 
@@ -676,7 +877,10 @@ mod tests {
         let snap = sup
             .snapshot("hist1", SnapshotMode::Grid, Some(10), None)
             .unwrap();
-        assert!(snap.frames.is_some(), "history truthy must return frames (even if empty)");
+        assert!(
+            snap.frames.is_some(),
+            "history truthy must return frames (even if empty)"
+        );
         assert_eq!(snap.frames.unwrap().len(), 0);
         sup.kill("hist1").unwrap();
     }
@@ -686,9 +890,9 @@ mod tests {
         let sup = Supervisor::new();
         sup.spawn(SpawnRequest {
             id: "dim1".into(),
-            cmd: "bash --norc --noprofile".into(),
+            cmd: "/bin/bash --norc --noprofile".into(),
             cwd: None,
-            env: vec![("PATH".into(), std::env::var("PATH").unwrap_or_default())],
+            env: vec![("PATH".into(), "/usr/bin:/bin".into())],
             cols: 100,
             rows: 30,
             prompt_regex: None,
@@ -697,7 +901,9 @@ mod tests {
         })
         .unwrap();
         sleep(Duration::from_millis(100));
-        let snap = sup.snapshot("dim1", SnapshotMode::Grid, None, None).unwrap();
+        let snap = sup
+            .snapshot("dim1", SnapshotMode::Grid, None, None)
+            .unwrap();
         assert_eq!(snap.cols, 100);
         assert_eq!(snap.rows, 30);
         sup.kill("dim1").unwrap();
@@ -706,17 +912,19 @@ mod tests {
     #[test]
     fn spawn_result_no_cast_file_when_record_false() {
         let sup = Supervisor::new();
-        let result = sup.spawn(SpawnRequest {
-            id: "no_cast".into(),
-            cmd: "bash --norc --noprofile".into(),
-            cwd: None,
-            env: vec![("PATH".into(), std::env::var("PATH").unwrap_or_default())],
-            cols: 80,
-            rows: 24,
-            prompt_regex: None,
-            shell: false,
-            cast_path: None,
-        }).unwrap();
+        let result = sup
+            .spawn(SpawnRequest {
+                id: "no_cast".into(),
+                cmd: "/bin/bash --norc --noprofile".into(),
+                cwd: None,
+                env: vec![("PATH".into(), "/usr/bin:/bin".into())],
+                cols: 80,
+                rows: 24,
+                prompt_regex: None,
+                shell: false,
+                cast_path: None,
+            })
+            .unwrap();
         assert_eq!(result.id, "no_cast");
         assert!(result.cast_file.is_none(), "no record => no castFile");
         sup.kill("no_cast").unwrap();

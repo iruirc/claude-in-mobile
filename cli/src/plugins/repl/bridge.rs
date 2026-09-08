@@ -62,14 +62,13 @@ pub fn run_supervisor_loop() -> Result<()> {
         let req: Request = match serde_json::from_str(&line) {
             Ok(r) => r,
             Err(e) => {
-                let _ = tx.send(json!({"id":"","error":format!("invalid request: {e}")}).to_string());
+                let _ =
+                    tx.send(json!({"id":"","error":format!("invalid request: {e}")}).to_string());
                 continue;
             }
         };
         if req.method == "shutdown" {
-            for info in supervisor.list() {
-                let _ = supervisor.kill(&info.id);
-            }
+            supervisor.shutdown();
             let _ = tx.send(json!({"id":req.id,"result":"ok"}).to_string());
             break;
         }
@@ -153,7 +152,10 @@ fn dispatch(sup: &Supervisor, method: &str, params: &Value) -> Result<Value> {
         }
         "expect" => {
             let id = required_string(params, "id")?;
-            let regex = params.get("regex").and_then(|v| v.as_str()).map(String::from);
+            let regex = params
+                .get("regex")
+                .and_then(|v| v.as_str())
+                .map(String::from);
             // Hard caps prevent a caller from blocking the server for hours.
             //
             // Live / animated TUI programs (monet tui, top, htop, watch …) emit
@@ -335,9 +337,15 @@ mod tests {
 
     #[test]
     fn snapshot_mode_parse() {
-        assert!(matches!(SnapshotMode::parse("grid"), Ok(SnapshotMode::Grid)));
+        assert!(matches!(
+            SnapshotMode::parse("grid"),
+            Ok(SnapshotMode::Grid)
+        ));
         assert!(matches!(SnapshotMode::parse("raw"), Ok(SnapshotMode::Raw)));
-        assert!(matches!(SnapshotMode::parse("both"), Ok(SnapshotMode::Both)));
+        assert!(matches!(
+            SnapshotMode::parse("both"),
+            Ok(SnapshotMode::Both)
+        ));
         let err = SnapshotMode::parse("zzz").unwrap_err();
         assert!(err.to_string().contains("invalid mode: zzz"), "err: {err}");
     }
@@ -354,7 +362,9 @@ mod tests {
     #[test]
     fn parse_cast_path_record_false() {
         assert!(parse_cast_path(&json!({}), "s1").unwrap().is_none());
-        assert!(parse_cast_path(&json!({"record": false}), "s1").unwrap().is_none());
+        assert!(parse_cast_path(&json!({"record": false}), "s1")
+            .unwrap()
+            .is_none());
     }
 
     #[test]
@@ -389,12 +399,45 @@ mod tests {
         // timeoutMs hard cap: 300_000 ms
         let huge_timeout: u64 = 10_000_000;
         let clamped_timeout = huge_timeout.min(300_000);
-        assert_eq!(clamped_timeout, 300_000u64, "timeoutMs must be capped at 300_000");
+        assert_eq!(
+            clamped_timeout, 300_000u64,
+            "timeoutMs must be capped at 300_000"
+        );
 
         // Values below the cap must pass through unchanged.
         let small_idle: u64 = 200;
-        assert_eq!(small_idle.min(60_000), 200u64, "values below cap must be unchanged");
+        assert_eq!(
+            small_idle.min(60_000),
+            200u64,
+            "values below cap must be unchanged"
+        );
         let small_timeout: u64 = 5_000;
-        assert_eq!(small_timeout.min(300_000), 5_000u64, "values below cap must be unchanged");
+        assert_eq!(
+            small_timeout.min(300_000),
+            5_000u64,
+            "values below cap must be unchanged"
+        );
+    }
+
+    #[test]
+    fn spawn_kill_removes_session_from_bridge_surface() {
+        let sup = Supervisor::new();
+        dispatch(
+            &sup,
+            "spawn",
+            &json!({
+                "id": "bridge-kill",
+                "cmd": "/bin/bash --norc --noprofile",
+                "env": {
+                    "PATH": "/usr/bin:/bin",
+                    "HOME": "/tmp"
+                }
+            }),
+        )
+        .unwrap();
+        dispatch(&sup, "kill", &json!({"id": "bridge-kill"})).unwrap();
+
+        assert_eq!(dispatch(&sup, "list", &json!({})).unwrap(), json!([]));
+        assert!(dispatch(&sup, "snapshot", &json!({"id": "bridge-kill"}),).is_err());
     }
 }
