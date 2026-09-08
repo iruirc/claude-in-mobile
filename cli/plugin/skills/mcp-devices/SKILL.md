@@ -1,19 +1,19 @@
 ---
 name: mcp-devices
-description: "This skill should be used when the user asks to interact with device screens (screenshot, annotate, tap, swipe, type text), manage apps (install, launch, stop, uninstall), transfer files (push, pull), query device info (logs, system info, clipboard, screen size), run shell commands, manage desktop windows, or automate Android, iOS, Aurora OS, or Desktop apps."
+description: "This skill should be used when the user asks to interact with device screens (screenshot, annotate, tap, swipe, type text), manage apps (install, launch, stop, uninstall), transfer files (push, pull), query device info (logs, system info, clipboard, screen size), run shell commands, manage desktop windows, or automate Android, iOS, HarmonyOS, Aurora OS, or Desktop apps."
 ---
 
-# mcp-devices CLI
+# mcp-devices native CLI
 
-Fast CLI for mobile device automation across **Android** (via ADB), **iOS** (via simctl), **Aurora OS** (via audb), and **Desktop** (via companion JSON-RPC app).
+Fast CLI for mobile device automation across **Android** (via ADB), **iOS** (via simctl), **HarmonyOS** (via HDC), **Aurora OS** (via audb), and **Desktop** (via companion JSON-RPC app).
 
-Binary: `mcp-devices` (ensure it's in PATH or use full path to the built binary).
+Binary: `mcp-devices-cli` (ensure it's in PATH or use its full path).
 
 ## Common Flags
 
 | Flag | Description | Platforms |
 |------|-------------|-----------|
-| `--device <serial>` | Android/Aurora device serial (default: first connected) | Android, Aurora |
+| `--device <serial>` | Android/HarmonyOS/Aurora device serial (default: first connected) | Android, HarmonyOS, Aurora |
 | `--simulator <name>` | iOS Simulator name (default: booted) | iOS |
 | `--companion-path <path>` | Path to Desktop companion app (or set `MOBILE_TOOLS_COMPANION` env) | Desktop |
 
@@ -26,10 +26,11 @@ Binary: `mcp-devices` (ensure it's in PATH or use full path to the built binary)
 List connected devices across platforms.
 
 ```bash
-mcp-devices devices              # All platforms
-mcp-devices devices android      # Android only
-mcp-devices devices ios          # iOS simulators only
-mcp-devices devices aurora       # Aurora devices only
+mcp-devices-cli devices              # All platforms
+mcp-devices-cli devices android      # Android only
+mcp-devices-cli devices ios          # iOS simulators only
+mcp-devices-cli devices --platform harmony # HarmonyOS devices only
+mcp-devices-cli devices aurora       # Aurora devices only
 ```
 
 ---

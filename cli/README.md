@@ -1,14 +1,13 @@
-# claude-in-mobile CLI
+# mcp-devices native CLI
 
 Fast native Rust CLI for mobile device automation. Standalone binary alternative to MCP server — no Node.js required, instant startup.
 
 ## Install
 
-### Homebrew (macOS ARM64)
+### Homebrew (macOS)
 
 ```bash
-brew tap AlexGladkov/claude-in-mobile-homebrew https://github.com/AlexGladkov/claude-in-mobile-homebrew
-brew install claude-in-mobile
+brew install AlexGladkov/tap/mcp-devices
 ```
 
 ### From release binary
@@ -17,16 +16,12 @@ Download from [Releases](https://github.com/AlexGladkov/claude-in-mobile/release
 
 ```bash
 # macOS ARM64 (Apple Silicon)
-tar -xzf claude-in-mobile-2.9.0-darwin-arm64.tar.gz
-cp claude-in-mobile /usr/local/bin/
+tar -xzf claude-in-mobile-VERSION-darwin-arm64.tar.gz
+cp mcp-devices-cli /usr/local/bin/
 
 # macOS x86_64 (Intel)
-tar -xzf claude-in-mobile-2.9.0-darwin-x86_64.tar.gz
-cp claude-in-mobile /usr/local/bin/
-
-# Linux x86_64
-tar -xzf claude-in-mobile-2.9.0-linux-x86_64.tar.gz
-sudo cp claude-in-mobile /usr/local/bin/
+tar -xzf claude-in-mobile-VERSION-darwin-x86_64.tar.gz
+cp mcp-devices-cli /usr/local/bin/
 ```
 
 ### From source
@@ -34,14 +29,14 @@ sudo cp claude-in-mobile /usr/local/bin/
 ```bash
 cd cli
 cargo build --release
-cp target/release/claude-in-mobile /usr/local/bin/
+install -m 755 target/release/mcp-devices /usr/local/bin/mcp-devices-cli
 ```
 
 Verify:
 
 ```bash
-claude-in-mobile --version
-claude-in-mobile --help
+mcp-devices-cli --version
+mcp-devices-cli --help
 ```
 
 ---
@@ -57,7 +52,7 @@ The `plugin/` directory contains a Claude Code skill that enables natural langua
 claude plugin add /path/to/cli/plugin
 
 # Or link to specific project
-ln -s /path/to/cli/plugin ~/.claude/plugins/claude-in-mobile
+ln -s /path/to/cli/plugin ~/.claude/plugins/mcp-devices
 ```
 
 ### What it enables
@@ -83,7 +78,7 @@ After installing the plugin, Claude Code can:
 
 ### Requirements
 
-- `claude-in-mobile` binary in PATH
+- `mcp-devices-cli` binary in PATH
 - Platform tools:
   - **Android**: `adb` in PATH
   - **iOS**: Xcode with `simctl`
@@ -104,8 +99,8 @@ grok plugin install mcp-devices --trust
 Or copy the plugin tree into the current project / your home directory (no marketplace):
 
 ```bash
-mcp-devices setup grok           # .grok/plugins/mcp-devices
-mcp-devices setup grok --global  # ~/.grok/plugins/mcp-devices
+mcp-devices-cli setup grok           # .grok/plugins/mcp-devices
+mcp-devices-cli setup grok --global  # ~/.grok/plugins/mcp-devices
 ```
 
 Restart Grok. Project-local installs are not auto-trusted (MCP stays off until trust):
@@ -123,113 +118,113 @@ The slim `mcp-devices` package loads no platforms by default — run `mcp-device
 
 ## Agent Skill Setup
 
-OpenCode, Pi, Qwen Code, Gemini CLI, Codex, and Cursor can use the same `SKILL.md` command documentation without the Claude Code plugin manifest. Install the CLI first and make sure `claude-in-mobile` is in `PATH`.
+OpenCode, Pi, Qwen Code, Gemini CLI, Codex, and Cursor can use the same `SKILL.md` command documentation without the Claude Code plugin manifest. Install the CLI first and make sure `mcp-devices-cli` is in `PATH`.
 
 ### OpenCode
 
 Install into the current project:
 
 ```bash
-claude-in-mobile setup opencode
+mcp-devices-cli setup opencode
 ```
 
 This writes:
 
 ```text
-.opencode/skills/claude-in-mobile/SKILL.md
-.opencode/skills/claude-in-mobile/references/platform-support.md
+.opencode/skills/mcp-devices/SKILL.md
+.opencode/skills/mcp-devices/references/platform-support.md
 ```
 
 Install globally for the current user:
 
 ```bash
-claude-in-mobile setup opencode --global
+mcp-devices-cli setup opencode --global
 ```
 
 This writes under:
 
 ```text
-~/.config/opencode/skills/claude-in-mobile
+~/.config/opencode/skills/mcp-devices
 ```
 
 If files already exist and differ, the command refuses to overwrite them. Use `--force` to replace existing skill files:
 
 ```bash
-claude-in-mobile setup opencode --global --force
+mcp-devices-cli setup opencode --global --force
 ```
 
-Restart OpenCode after installation, then ask it to use the `claude-in-mobile` skill.
+Restart OpenCode after installation, then ask it to use the `mcp-devices` skill.
 
 ### Pi
 
 Install into the current project:
 
 ```bash
-claude-in-mobile setup pi
+mcp-devices-cli setup pi
 ```
 
 This writes:
 
 ```text
-.pi/skills/claude-in-mobile/SKILL.md
-.pi/skills/claude-in-mobile/references/platform-support.md
+.pi/skills/mcp-devices/SKILL.md
+.pi/skills/mcp-devices/references/platform-support.md
 ```
 
 Install globally for the current user:
 
 ```bash
-claude-in-mobile setup pi --global
+mcp-devices-cli setup pi --global
 ```
 
 This writes under:
 
 ```text
-~/.pi/agent/skills/claude-in-mobile
+~/.pi/agent/skills/mcp-devices
 ```
 
 If files already exist and differ, the command refuses to overwrite them. Use `--force` to replace existing skill files:
 
 ```bash
-claude-in-mobile setup pi --global --force
+mcp-devices-cli setup pi --global --force
 ```
 
-Restart Pi after installation, then ask it to use the `claude-in-mobile` skill.
+Restart Pi after installation, then ask it to use the `mcp-devices` skill.
 
 ### Qwen Code
 
 ```bash
-claude-in-mobile setup qwen          # .qwen/skills/claude-in-mobile
-claude-in-mobile setup qwen --global # ~/.qwen/skills/claude-in-mobile
+mcp-devices-cli setup qwen          # .qwen/skills/mcp-devices
+mcp-devices-cli setup qwen --global # ~/.qwen/skills/mcp-devices
 ```
 
-Restart Qwen Code after installation, then ask it to use the `claude-in-mobile` skill.
+Restart Qwen Code after installation, then ask it to use the `mcp-devices` skill.
 
 ### Gemini CLI
 
 ```bash
-claude-in-mobile setup gemini          # .gemini/skills/claude-in-mobile
-claude-in-mobile setup gemini --global # ~/.gemini/skills/claude-in-mobile
+mcp-devices-cli setup gemini          # .gemini/skills/mcp-devices
+mcp-devices-cli setup gemini --global # ~/.gemini/skills/mcp-devices
 ```
 
-Restart Gemini CLI after installation, then ask it to use the `claude-in-mobile` skill.
+Restart Gemini CLI after installation, then ask it to use the `mcp-devices` skill.
 
 ### Codex
 
 ```bash
-claude-in-mobile setup codex          # .agents/skills/claude-in-mobile
-claude-in-mobile setup codex --global # ~/.agents/skills/claude-in-mobile
+mcp-devices-cli setup codex          # .agents/skills/mcp-devices
+mcp-devices-cli setup codex --global # ~/.agents/skills/mcp-devices
 ```
 
-Restart Codex after installation, then ask it to use the `claude-in-mobile` skill.
+Restart Codex after installation, then ask it to use the `mcp-devices` skill.
 
 ### Cursor
 
 ```bash
-claude-in-mobile setup cursor          # .cursor/skills/claude-in-mobile
-claude-in-mobile setup cursor --global # ~/.cursor/skills/claude-in-mobile
+mcp-devices-cli setup cursor          # .cursor/skills/mcp-devices
+mcp-devices-cli setup cursor --global # ~/.cursor/skills/mcp-devices
 ```
 
-Restart Cursor after installation, then ask Agent to use the `claude-in-mobile` skill.
+Restart Cursor after installation, then ask Agent to use the `mcp-devices` skill.
 
 For every setup command, if files already exist and differ, the command refuses to overwrite them. Use `--force` to replace existing skill files.
 
@@ -318,13 +313,15 @@ Add to `.cursor/mcp.json`:
 
 ### Unified CLI for All Platforms
 
-One binary — four platforms. Same commands work across Android, iOS, Aurora OS, and Desktop:
+One binary — five platforms. The same core commands work across Android, iOS, HarmonyOS, Aurora OS, and Desktop:
 
 ```bash
-claude-in-mobile screenshot android -o screen.png
-claude-in-mobile screenshot ios -o screen.png
-claude-in-mobile tap android 500 800
-claude-in-mobile tap ios 500 800
+mcp-devices-cli screenshot android -o screen.png
+mcp-devices-cli screenshot ios -o screen.png
+mcp-devices-cli screenshot --platform harmony -o screen.png
+mcp-devices-cli tap android 500 800
+mcp-devices-cli tap ios 500 800
+mcp-devices-cli tap --platform harmony 500 800
 ```
 
 ### Test Automation with Shell Scripts
@@ -336,23 +333,23 @@ Write reusable test scenarios as plain shell scripts — no frameworks, no setup
 # login-test.sh — smoke test for login flow
 
 APP="com.example.app"
-claude-in-mobile launch android "$APP"
-claude-in-mobile wait 2000
+mcp-devices-cli launch android "$APP"
+mcp-devices-cli wait 2000
 
 # Enter credentials
-claude-in-mobile tap android 0 0 --text "Email"
-claude-in-mobile input android "test@example.com"
-claude-in-mobile tap android 0 0 --text "Password"
-claude-in-mobile input android "secret123"
-claude-in-mobile tap android 0 0 --text "Sign In"
-claude-in-mobile wait 3000
+mcp-devices-cli tap android 0 0 --text "Email"
+mcp-devices-cli input android "test@example.com"
+mcp-devices-cli tap android 0 0 --text "Password"
+mcp-devices-cli input android "secret123"
+mcp-devices-cli tap android 0 0 --text "Sign In"
+mcp-devices-cli wait 3000
 
 # Verify login succeeded
-claude-in-mobile screenshot android -o result.png
-claude-in-mobile ui-dump android | grep "Welcome"
+mcp-devices-cli screenshot android -o result.png
+mcp-devices-cli ui-dump android | grep "Welcome"
 EXIT_CODE=$?
 
-claude-in-mobile stop android "$APP"
+mcp-devices-cli stop android "$APP"
 exit $EXIT_CODE
 ```
 
@@ -366,12 +363,12 @@ Run on CI:
 
 ```bash
 # Take baseline
-claude-in-mobile screenshot android --compress -o baseline.png
+mcp-devices-cli screenshot android --compress -o baseline.png
 
 # ... run actions ...
 
 # Take current state
-claude-in-mobile screenshot android --compress -o current.png
+mcp-devices-cli screenshot android --compress -o current.png
 
 # Compare (with imagemagick or any diff tool)
 compare baseline.png current.png diff.png
@@ -381,20 +378,20 @@ compare baseline.png current.png diff.png
 
 ```bash
 # Screenshot with bounding boxes around all UI elements
-claude-in-mobile annotate android -o annotated.png
+mcp-devices-cli annotate android -o annotated.png
 
 # Structured JSON of all interactive elements
-claude-in-mobile analyze-screen
+mcp-devices-cli analyze-screen
 ```
 
 ### Device Farm Scripts
 
 ```bash
 # Run same test on all connected devices
-for device in $(claude-in-mobile devices android | grep -o 'emulator-[0-9]*'); do
+for device in $(mcp-devices-cli devices android | grep -o 'emulator-[0-9]*'); do
   echo "Testing on $device..."
-  claude-in-mobile screenshot android --device "$device" -o "screen-$device.png"
-  claude-in-mobile tap android 500 800 --device "$device"
+  mcp-devices-cli screenshot android --device "$device" -o "screen-$device.png"
+  mcp-devices-cli tap android 500 800 --device "$device"
 done
 ```
 
@@ -402,9 +399,9 @@ done
 
 ```bash
 # Capture logs during test execution
-claude-in-mobile clear-logs android
+mcp-devices-cli clear-logs android
 ./run-test.sh
-claude-in-mobile logs android -l 500 --package com.example.app -o crash-logs.txt
+mcp-devices-cli logs android -l 500 --package com.example.app -o crash-logs.txt
 ```
 
 ### Claude Code Integration
@@ -424,8 +421,8 @@ Claude reads SKILL.md only when needed — no token overhead in sessions where y
 
 ## CLI vs MCP Server
 
-| Feature | CLI (`claude-in-mobile`) | MCP Server |
-|---------|--------------------------|------------|
+| Feature | CLI (`mcp-devices-cli`) | MCP Server |
+|---------|-------------------------|------------|
 | **Startup time** | ~5ms (native binary) | ~500ms (Node.js spawn) |
 | **Dependencies** | None (static binary) | Node.js, npm packages |
 | **Installation** | Single file copy | `npm install` |
@@ -480,19 +477,25 @@ cd cli
 
 # macOS ARM64 (Apple Silicon)
 cargo build --release --target aarch64-apple-darwin
+BIN_DIR=target/aarch64-apple-darwin/release
+ln -sf mcp-devices "$BIN_DIR/mcp-devices-cli"
 tar -czvf claude-in-mobile-VERSION-darwin-arm64.tar.gz \
-  -C target/aarch64-apple-darwin/release claude-in-mobile
+  -C "$BIN_DIR" mcp-devices mcp-devices-cli
 
 # macOS x86_64 (Intel)
 cargo build --release --target x86_64-apple-darwin
+BIN_DIR=target/x86_64-apple-darwin/release
+ln -sf mcp-devices "$BIN_DIR/mcp-devices-cli"
 tar -czvf claude-in-mobile-VERSION-darwin-x86_64.tar.gz \
-  -C target/x86_64-apple-darwin/release claude-in-mobile
+  -C "$BIN_DIR" mcp-devices mcp-devices-cli
 
 # Linux x86_64 (static musl)
 CC_x86_64_unknown_linux_musl=x86_64-linux-musl-gcc \
 cargo build --release --target x86_64-unknown-linux-musl
+BIN_DIR=target/x86_64-unknown-linux-musl/release
+ln -sf mcp-devices "$BIN_DIR/mcp-devices-cli"
 tar -czvf claude-in-mobile-VERSION-linux-x86_64.tar.gz \
-  -C target/x86_64-unknown-linux-musl/release claude-in-mobile
+  -C "$BIN_DIR" mcp-devices mcp-devices-cli
 ```
 
 ### Calculate SHA256 (for Homebrew)
@@ -526,7 +529,7 @@ shasum -a 256 claude-in-mobile-VERSION-linux-x86_64.tar.gz
 
 ## Commands (38 total)
 
-Run `claude-in-mobile --help` for full list.
+Run `mcp-devices-cli --help` for the full list.
 
 | Category | Commands |
 |----------|----------|
@@ -541,4 +544,4 @@ Run `claude-in-mobile --help` for full list.
 | Desktop | `launch-desktop-app`, `stop-desktop-app`, `get-window-info`, `focus-window`, `resize-window`, `get-monitors`, `get-performance-metrics` |
 | Other | `shell`, `open-url`, `wait`, `current-activity` |
 
-See `plugin/skills/claude-in-mobile/SKILL.md` for detailed command documentation.
+See `plugin/skills/mcp-devices/SKILL.md` for detailed command documentation.

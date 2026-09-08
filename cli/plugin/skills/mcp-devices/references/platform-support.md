@@ -16,6 +16,13 @@
 - **Supported:** screenshot, annotate, tap, long-press, swipe, input, key, ui-dump, find, tap-text, devices, apps, launch, stop, install, uninstall, clipboard, logs, clear-logs, system-info, current-activity, reboot, screen-size, open-url, shell
 - **Not supported:** analyze-screen, find-and-tap, push-file, pull-file, screen power
 
+### HarmonyOS
+
+- **Backend:** HDC (`hdc` in PATH or `HDC_PATH` set to the executable)
+- **Device selection:** `--device <serial>` (see `hdc list targets -v`)
+- **Supported:** screenshot, coordinate tap and long-press, swipe, input, key, ui-dump (JSON), devices, apps, launch, stop, install, uninstall, push-file, pull-file, logs, clear-logs, system-info, open-url, shell
+- **Not supported:** annotate, text-based element search/tap, clipboard, current-activity, reboot, screen power, screen-size, flows
+
 ### Aurora OS
 
 - **Backend:** audb (Aurora Debug Bridge, similar to ADB)
@@ -32,38 +39,38 @@
 
 ## Platform Support Matrix
 
-| Command | Android | iOS | Aurora | Desktop |
-|---------|---------|-----|--------|---------|
-| screenshot | yes | yes | yes | yes |
-| annotate | yes | yes | no | no |
-| tap | yes | yes | yes | yes |
-| long-press | yes | yes | yes | no |
-| swipe | yes | yes | yes | no |
-| input | yes | yes | yes | yes |
-| key | yes | yes | yes | yes |
-| ui-dump | yes | yes | no | yes |
-| find/tap-text | yes | yes | no | no |
-| analyze-screen | yes | no | no | no |
-| find-and-tap | yes | no | no | no |
-| devices | yes | yes | yes | n/a |
-| apps | yes | yes | yes | n/a |
-| launch | yes | yes | yes | yes |
-| stop | yes | yes | yes | yes |
-| install | yes | yes | yes | n/a |
-| uninstall | yes | yes | yes | n/a |
-| push-file | yes | no | yes | no |
-| pull-file | yes | no | yes | no |
-| clipboard | yes | yes | no | yes |
-| logs | yes | yes | yes | no |
-| clear-logs | yes | yes | yes | no |
-| system-info | yes | yes | yes | no |
-| current-activity | yes | yes | no | no |
-| reboot | yes | yes | no | no |
-| screen (power) | yes | no | no | no |
-| screen-size | yes | yes | no | no |
-| open-url | yes | yes | yes | no |
-| shell | yes | yes | yes | no |
-| wait | n/a | n/a | n/a | n/a |
-| window mgmt | no | no | no | yes |
-| monitors | no | no | no | yes |
-| perf metrics | no | no | no | yes |
+| Command | Android | iOS | HarmonyOS | Aurora | Desktop |
+|---------|---------|-----|-----------|--------|---------|
+| screenshot | yes | yes | yes | yes | yes |
+| annotate | yes | yes | no | no | no |
+| tap | yes | yes | yes | yes | yes |
+| long-press | yes | yes | yes | yes | no |
+| swipe | yes | yes | yes | yes | no |
+| input | yes | yes | yes | yes | yes |
+| key | yes | yes | yes | yes | yes |
+| ui-dump | yes | yes | yes | no | yes |
+| find/tap-text | yes | yes | no | no | no |
+| analyze-screen | yes | no | no | no | no |
+| find-and-tap | yes | no | no | no | no |
+| devices | yes | yes | yes | yes | n/a |
+| apps | yes | yes | yes | yes | n/a |
+| launch | yes | yes | yes | yes | yes |
+| stop | yes | yes | yes | yes | yes |
+| install | yes | yes | yes | yes | n/a |
+| uninstall | yes | yes | yes | yes | n/a |
+| push-file | yes | no | yes | yes | no |
+| pull-file | yes | no | yes | yes | no |
+| clipboard | yes | yes | no | no | yes |
+| logs | yes | yes | yes | yes | no |
+| clear-logs | yes | yes | yes | yes | no |
+| system-info | yes | yes | yes | yes | no |
+| current-activity | yes | yes | no | no | no |
+| reboot | yes | yes | no | no | no |
+| screen (power) | yes | no | no | no | no |
+| screen-size | yes | yes | no | no | no |
+| open-url | yes | yes | yes | yes | no |
+| shell | yes | yes | yes | yes | no |
+| wait | n/a | n/a | n/a | n/a | n/a |
+| window mgmt | no | no | no | no | yes |
+| monitors | no | no | no | no | yes |
+| perf metrics | no | no | no | no | yes |

@@ -41,7 +41,7 @@ device(action:'list_modules')           # check status of all modules
 |--------|-----------|---------|
 | `list` | `platform` (optional) | List connected/available devices (filtered by platform if specified) |
 | `set` | `deviceId` | Switch to a specific device by ID |
-| `set_target` | `target` (platform name) | Switch platform target (android, ios, web, desktop, aurora) |
+| `set_target` | `target` (platform name) | Switch platform target (android, ios, web, desktop, aurora, harmony) |
 | `get_target` | — | Get current platform target |
 | `enable_module` | `module` (or `category`) | Enable a hidden module at runtime |
 | `disable_module` | `module` | Disable a visible module at runtime |
@@ -178,97 +178,60 @@ ui(action: 'assert_gone', text: 'Loading Spinner')
 ---
 
 #### app
-**Launch, stop, install, list applications**
+**Launch, stop, install, uninstall, and list applications**
 
 | Action | Parameters | Purpose |
 |--------|-----------|---------|
-| `launch` | `package` (bundle ID) + optional `activity`, `args` | Launch app (with optional args) |
-| `stop` | `package` | Stop/kill app gracefully |
-| `install` | `path` (to .apk/.ipa) | Install package from file path |
-| `list` | optional `filter` | List installed applications |
+| `launch` | `package`, optional `platform`, `deviceId` | Launch an app by package or bundle ID |
+| `stop` | `package`, optional `platform`, `deviceId` | Force-stop an app |
+| `restart` | `package`, optional `delayMs`, `platform`, `deviceId` | Stop then relaunch an app |
+| `install` | `path`, optional `platform`, `deviceId` | Install an APK, app bundle, RPM, or HAP supported by the platform |
+| `uninstall` | `package`, optional `platform`, `deviceId` | Uninstall through an app-inventory-capable adapter |
+| `list` | optional `platform`, `deviceId` | List installed IDs (Aurora and HarmonyOS Next) |
 
 **Examples:**
 
 ```json
-// Launch app
 app(action: 'launch', package: 'com.example.myapp')
-
-// Launch with intent extras (Android)
-app(action: 'launch', package: 'com.example.myapp', args: { userId: '123', mode: 'demo' })
-
-// Launch specific activity (Android)
-app(action: 'launch', package: 'com.example.myapp', activity: 'com.example.myapp.SettingsActivity')
-
-// Stop app
-app(action: 'stop', package: 'com.example.myapp')
-
-// Install app from path
-app(action: 'install', path: '/path/to/app.apk')
-
-// List installed apps
-app(action: 'list')
-→ { apps: [{ package: 'com.example.app1', name: 'My App', ... }, ...] }
-
-// List with filter
-app(action: 'list', filter: 'system')
+app(action: 'restart', package: 'com.example.myapp', delayMs: 250)
+app(action: 'install', path: '/path/to/app.hap', platform: 'harmony')
+app(action: 'list', platform: 'harmony')
+app(action: 'uninstall', package: 'com.example.myapp', platform: 'harmony')
 ```
 
 ---
 
 #### system
-**Shell, logs, clipboard, permissions, URL, device info**
+**Shell, logs, files, clipboard, permissions, URL, and device information**
 
 | Action | Parameters | Purpose |
 |--------|-----------|---------|
-| `shell` | `command` | Execute shell command on device |
-| `logs` | optional `filter`, `lines` | Read device logs (tail by default) |
-| `clear_logs` | — | Clear log buffer |
-| `info` | — | Get device info (model, OS version, etc.) |
-| `open_url` | `url` | Open URL (browser or app) |
-| `clipboard_get` | — | Read clipboard content |
-| `clipboard_set` | `text` | Set clipboard content |
-| `permission_grant` | `package`, `permission` | Grant runtime permission |
-| `permission_revoke` | `package`, `permission` | Revoke runtime permission |
-| `permission_reset` | `package` | Reset all permissions to default |
-| `file_push` | `source`, `dest` | Push file to device |
-| `file_pull` | `source`, `dest` | Pull file from device |
-| `metrics` | optional `filter` | Get device metrics (CPU, memory, battery) |
-| `reset_metrics` | — | Reset metric counters |
+| `shell` | `command`, optional `platform`, `deviceId` | Execute a validated shell command on a device |
+| `logs` | optional `level`, `tag`, `lines`, `package` | Read the current platform's log buffer |
+| `wait_log` | `pattern`, optional `timeoutMs`, `pollIntervalMs`, `contextLines`, `clearFirst` | Wait for a regex in device logs |
+| `clear_logs` | optional `platform`, `deviceId` | Clear the log buffer |
+| `pid_of` | `package` | Get an Android process ID |
+| `is_running` | `package` | Check whether an Android process is running |
+| `info` | optional `platform`, `deviceId` | Get device information |
+| `open_url` | `url`, optional `platform`, `deviceId` | Open a URL on Android, iOS, or HarmonyOS Next |
+| `clipboard_get` | — | Read Android clipboard content |
+| `permission_grant` | `package`, `permission` | Grant a runtime permission |
+| `permission_revoke` | `package`, `permission` | Revoke a runtime permission |
+| `permission_reset` | `package` | Reset runtime permissions |
+| `file_push` | `localPath`, `remotePath`, optional `platform`, `deviceId` | Upload a file (Aurora or HarmonyOS Next) |
+| `file_pull` | `remotePath`, optional `localPath`, `platform`, `deviceId` | Download a file (Aurora or HarmonyOS Next) |
+| `metrics` | — | Get MCP operation metrics |
+| `reset_metrics` | — | Reset MCP operation metrics |
 
 **Examples:**
 
 ```json
-// Execute shell command
-system(action: 'shell', command: 'pm list packages')
-
-// Read logs (filter by tag)
-system(action: 'logs', filter: 'Exception', lines: 50)
-
-// Get device info
-system(action: 'info')
-→ { device: 'Pixel 6', os: 'Android 13', ... }
-
-// Open URL
-system(action: 'open_url', url: 'https://example.com')
-
-// Read clipboard
-system(action: 'clipboard_get')
-
-// Set clipboard
-system(action: 'clipboard_set', text: 'copied text')
-
-// Grant permission
-system(action: 'permission_grant', package: 'com.example.app', permission: 'android.permission.CAMERA')
-
-// Push file
-system(action: 'file_push', source: '/local/path/data.json', dest: '/sdcard/Download/data.json')
-
-// Pull file
-system(action: 'file_pull', source: '/sdcard/Download/output.txt', dest: '/local/output.txt')
-
-// Get metrics
-system(action: 'metrics')
-→ { cpu: 45.2, memory: 2048 }  // percentage and MB
+system(action: 'shell', command: 'param get', platform: 'harmony')
+system(action: 'logs', tag: 'Demo', lines: 50, platform: 'harmony')
+system(action: 'wait_log', pattern: 'Ability.*ready', timeoutMs: 10000, platform: 'harmony')
+system(action: 'open_url', url: 'https://example.com', platform: 'harmony')
+system(action: 'file_push', localPath: '/local/data.json', remotePath: '/data/local/tmp/data.json', platform: 'harmony')
+system(action: 'file_pull', remotePath: '/data/local/tmp/output.txt', localPath: '/local/output.txt', platform: 'harmony')
 ```
 
 ---

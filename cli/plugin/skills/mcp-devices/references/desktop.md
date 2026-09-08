@@ -9,7 +9,7 @@ Commands exclusive to the Desktop platform. Require `--companion-path` flag or `
 List all open desktop windows with their IDs, titles, positions, and sizes.
 
 ```bash
-mcp-devices get-window-info --companion-path /path/to/companion
+mcp-devices-cli get-window-info --companion-path /path/to/companion
 ```
 
 ---
@@ -19,7 +19,7 @@ mcp-devices get-window-info --companion-path /path/to/companion
 Bring a desktop window to front by its ID (from `get-window-info`).
 
 ```bash
-mcp-devices focus-window "window-id" --companion-path /path/to/companion
+mcp-devices-cli focus-window "window-id" --companion-path /path/to/companion
 ```
 
 ---
@@ -29,7 +29,7 @@ mcp-devices focus-window "window-id" --companion-path /path/to/companion
 Resize a desktop window to specified width and height.
 
 ```bash
-mcp-devices resize-window "window-id" 800 600 --companion-path /path/to/companion
+mcp-devices-cli resize-window "window-id" 800 600 --companion-path /path/to/companion
 ```
 
 ---
@@ -39,7 +39,7 @@ mcp-devices resize-window "window-id" 800 600 --companion-path /path/to/companio
 Launch a desktop application by path.
 
 ```bash
-mcp-devices launch-desktop-app /path/to/app --companion-path /path/to/companion
+mcp-devices-cli launch-desktop-app /path/to/app --companion-path /path/to/companion
 ```
 
 ---
@@ -49,7 +49,7 @@ mcp-devices launch-desktop-app /path/to/app --companion-path /path/to/companion
 Stop a running desktop application by name.
 
 ```bash
-mcp-devices stop-desktop-app "AppName" --companion-path /path/to/companion
+mcp-devices-cli stop-desktop-app "AppName" --companion-path /path/to/companion
 ```
 
 ---
@@ -59,7 +59,7 @@ mcp-devices stop-desktop-app "AppName" --companion-path /path/to/companion
 Get CPU/memory usage metrics for running desktop applications.
 
 ```bash
-mcp-devices get-performance-metrics --companion-path /path/to/companion
+mcp-devices-cli get-performance-metrics --companion-path /path/to/companion
 ```
 
 ---
@@ -69,5 +69,5 @@ mcp-devices get-performance-metrics --companion-path /path/to/companion
 List connected monitors with resolutions and positions.
 
 ```bash
-mcp-devices get-monitors --companion-path /path/to/companion
+mcp-devices-cli get-monitors --companion-path /path/to/companion
 ```

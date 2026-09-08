@@ -3,7 +3,7 @@
 `claude-in-mobile` is the **all-in-one edition of
 [`mcp-devices`](https://www.npmjs.com/package/mcp-devices)**. It bundles the
 mcp-devices engine plus every platform plugin (Android, iOS, Web, Desktop,
-Aurora) and runs with **all platforms enabled by default** — install once and
+Aurora, HarmonyOS) and runs with **all platforms enabled by default** — install once and
 everything works, no per-platform setup.
 
 ```sh

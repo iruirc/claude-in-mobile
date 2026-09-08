@@ -1,4 +1,4 @@
-# mcp-devices 4.0.0 (ex-`claude-in-mobile`)
+# mcp-devices 4.2.0 (ex-`claude-in-mobile`)
 
 > ## 👉 Want everything in one package? Keep using `claude-in-mobile`.
 >
@@ -28,6 +28,7 @@ install. The rest of this README covers the **modular `mcp-devices`** edition.
 ---
 
 ## Install in 3 steps (modular)
+Requires Node.js 20 or newer.
 
 ```sh
 # 1. base server
@@ -49,6 +50,20 @@ device"* and it works.
 
 Check prerequisites any time: `mcp-devices doctor`.
 
+## Native shell CLI
+
+The npm command `mcp-devices` is the Node.js MCP server. For direct shell
+automation, install the native Rust CLI and use its unambiguous command name:
+
+```sh
+brew install AlexGladkov/tap/mcp-devices
+mcp-devices-cli --help
+mcp-devices-cli devices
+```
+
+The separate name prevents a global npm install from shadowing the native CLI
+on `PATH`.
+
 ## Pick your platform
 
 Each platform is a separate package. Install the one(s) you need — full guide in
@@ -61,6 +76,7 @@ each doc:
 | Web | `npm i -g @mcp-devices/plugin-web` | Chrome | [web »](./docs/modules/plugin-web.md) |
 | Desktop | `npm i -g @mcp-devices/plugin-desktop` | Java/JDK | [desktop »](./docs/modules/plugin-desktop.md) |
 | Aurora | `npm i -g @mcp-devices/plugin-aurora` | `flutter-aurora` | [aurora »](./docs/modules/plugin-aurora.md) |
+| HarmonyOS Next | `npm i -g @mcp-devices/plugin-harmony` | `hdc` (DevEco Studio) | [harmony »](./docs/modules/plugin-harmony.md) |
 | All | `npm i -g @mcp-devices/plugin-all` | — | — |
 
 After installing a package, enable it: `mcp-devices install <name>` (or `all`),
@@ -84,8 +100,8 @@ Happy with the bundled `claude-in-mobile`? **Do nothing** — it stays maintaine
 and installs exactly as before. This section is only if you *want* to move to the
 slim modular edition.
 
-- Your `claude-in-mobile` command keeps working either way — `mcp-devices`
-  installs both the `mcp-devices` and `claude-in-mobile` binaries.
+- The Node MCP commands `claude-in-mobile` and `mcp-devices` keep working;
+  the native shell interface is available as `mcp-devices-cli`.
 - The only difference is that platforms aren't bundled — install the one(s) you
   actually use:
 
@@ -100,15 +116,16 @@ Tools, actions, and MCP client config are identical to the bundled edition.
 ## Docs
 
 - [Modules & tools overview](./docs/modules/README.md) — how it's organized
-- Platforms: [android](./docs/modules/plugin-android.md) · [ios](./docs/modules/plugin-ios.md) · [web](./docs/modules/plugin-web.md) · [desktop](./docs/modules/plugin-desktop.md) · [aurora](./docs/modules/plugin-aurora.md)
+- Platforms: [android](./docs/modules/plugin-android.md) · [ios](./docs/modules/plugin-ios.md) · [web](./docs/modules/plugin-web.md) · [desktop](./docs/modules/plugin-desktop.md) · [aurora](./docs/modules/plugin-aurora.md) · [harmony](./docs/modules/plugin-harmony.md)
 - [Debug plugin](./docs/modules/plugin-debug.md) — runtime debugging
 - [Built-in tools reference](./docs/modules/built-in-tools.md) — every tool + action
 
 ## Notes
 
-- The modular base loads no platforms by default — you enable the ones you need
-  (`mcp-devices install <name>`). The `claude-in-mobile` edition enables them all.
-- The debug plugin isn't yet part of `mcp-devices install` — enable it with
-  `MCP_DEVICES_TOOL_PLUGINS=debug` or `~/.mcp-devices/config.json`.
+- The modular base loads no platforms by default — enable them with
+  `mcp-devices install <name>`. The `claude-in-mobile` edition enables all.
+- Enable the separately installed debug plugin with
+  `mcp-devices plugin enable debug`; `MCP_DEVICES_TOOL_PLUGINS=debug` remains
+  available as a per-run override.
 - Prefer everything in one package? Use the all-in-one **`claude-in-mobile`**
   edition (`npm i -g claude-in-mobile`) — still maintained, install unchanged.

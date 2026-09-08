@@ -1,8 +1,8 @@
 # Modules & Tools Architecture
 
-mcp-devices 4.0 is modular and plugin-based. Three types:
+mcp-devices 4.2 is modular and plugin-based. Three types:
 
-1. **Platform plugins** — Device platforms (Android, iOS, Web, Desktop, Aurora) as separate npm packages
+1. **Platform plugins** — Device platforms (Android, iOS, Web, Desktop, Aurora, HarmonyOS Next) as separate npm packages
 2. **Tool plugins** — Specialized tools (runtime debugging via Debug plugin)
 3. **Built-in tools** — 20 core modules bundled in base, hidden/shown via profile or runtime control
 
@@ -39,8 +39,9 @@ Extend mcp-devices to support specific device platforms. **By default no platfor
 | **iOS** | `@mcp-devices/plugin-ios` | Simulator + physical device (simctl, WebDriverAgent, go-ios) | `xcrun` (Xcode CLT); `go-ios` for physical | `mcp-devices install ios` |
 | **Web** | `@mcp-devices/plugin-web` | Chrome/Chromium via Chrome DevTools Protocol (CDP) | Chrome/Chromium (auto-launched) | `mcp-devices install web` |
 | **Desktop** | `@mcp-devices/plugin-desktop` | Compose desktop apps, window management, multi-monitor support | Java/JDK | `mcp-devices install desktop` |
-| **Aurora** | `@mcp-devices/plugin-aurora` | Aurora OS flutter-based applications (audb transport) | `flutter-aurora` (Aurora Flutter SDK) | `mcp-devices install aurora` |
-| **All** | `@mcp-devices/plugin-all` | Meta-package: installs all five platforms | All of above | `mcp-devices install all` |
+| **Aurora** | `@mcp-devices/plugin-aurora` | Aurora OS Flutter applications (audb transport) | `flutter-aurora` (Aurora Flutter SDK) | `mcp-devices install aurora` |
+| **HarmonyOS Next** | `@mcp-devices/plugin-harmony` | HDC/ArkXTest device and UI automation | `hdc` (DevEco Studio SDK) | `mcp-devices install harmony` |
+| **All** | `@mcp-devices/plugin-all` | Meta-package: installs all six platforms | All of above | `mcp-devices install all` |
 
 ### Per-run override
 
@@ -66,6 +67,7 @@ MCP_DEVICES_PLATFORMS=none mcp-devices
 - [Web](./plugin-web.md) — Chrome DevTools Protocol, DOM/JS automation
 - [Desktop](./plugin-desktop.md) — Window & app control, performance monitoring
 - [Aurora](./plugin-aurora.md) — Flutter-based OS automation
+- [HarmonyOS Next](./plugin-harmony.md) — HDC transport and ArkXTest UI automation
 
 ---
 
@@ -83,7 +85,7 @@ Specialized functionality beyond platform support. Currently: runtime debugging 
 | **Platforms** | Android (JDWP) + iOS (LLDB) |
 | **Tools** | 12 standalone tools: `debug_attach`, `debug_break`, `debug_poll`, `debug_pause_state`, `debug_eval`, `debug_set_var`, `debug_step`, `debug_resume`, `debug_detach`, `debug_sessions`, `debug_threads`, `debug_remove_break` |
 | **Requirements** | App must be built with `debuggable=true` |
-| **Enable** | `MCP_DEVICES_TOOL_PLUGINS=debug` or config file (not yet in `mcp-devices install`) |
+| **Enable** | `mcp-devices plugin enable debug` |
 
 ### Installation & enablement
 
@@ -91,13 +93,15 @@ Specialized functionality beyond platform support. Currently: runtime debugging 
 # Install
 npm i -g @mcp-devices/plugin-debug
 
-# Enable via environment variable
+# Enable persistently
+mcp-devices plugin enable debug
+
+# Inspect or disable
+mcp-devices plugins
+mcp-devices plugin disable debug
+
+# Per-run override
 MCP_DEVICES_TOOL_PLUGINS=debug mcp-devices
-
-# Or edit ~/.mcp-devices/config.json
-# { "tool_plugins": ["debug"] }
-
-# Restart MCP server
 ```
 
 ### Quick example
