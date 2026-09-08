@@ -9,16 +9,16 @@
 //!
 //! ```text
 //! # Enable turbo globally
-//! mcp-devices config set turbo true
+//! mcp-devices-cli config set turbo true
 //!
 //! # Check current value
-//! mcp-devices config get turbo
+//! mcp-devices-cli config get turbo
 //!
 //! # List all settings
-//! mcp-devices config list
+//! mcp-devices-cli config list
 //!
 //! # Remove a key
-//! mcp-devices config reset turbo
+//! mcp-devices-cli config reset turbo
 //! ```
 
 use std::collections::HashMap;

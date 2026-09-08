@@ -865,7 +865,7 @@ pub fn clear_logs(simulator: Option<&str>) -> Result<()> {
 
     // Fallback: log erase requires root, inform user
     println!("Note: log erase requires elevated privileges on iOS simulator");
-    println!("Workaround: reboot simulator to clear logs (mcp-devices reboot ios)");
+    println!("Workaround: reboot simulator to clear logs (mcp-devices-cli reboot ios)");
     Ok(())
 }
 

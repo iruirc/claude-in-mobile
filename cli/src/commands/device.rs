@@ -1,12 +1,12 @@
 //! Device interaction command handlers.
 //!
 //! Each public function here corresponds to a CLI subcommand that interacts
-//! with a physical or emulated device (Android, iOS, Aurora, Desktop).
+//! with a connected device or simulator.
 
-use anyhow::Result;
+use anyhow::{bail, Result};
 
 use crate::utils::shell_gate;
-use crate::{android, aurora, desktop, ios, screenshot, scale};
+use crate::{android, aurora, desktop, harmony, ios, scale, screenshot};
 
 // -- Screenshot / Annotate ----------------------------------------------------
 
@@ -26,6 +26,10 @@ pub fn screenshot(
     }
     if platform == "aurora" {
         let data = aurora::screenshot(device)?;
+        return write_or_base64(output, &data);
+    }
+    if platform == "harmony" {
+        let data = harmony::screenshot(device)?;
         return write_or_base64(output, &data);
     }
     screenshot::take_screenshot(platform, output, compress, max_width, quality, simulator, device)
@@ -52,18 +56,22 @@ pub fn tap(
     companion_path: Option<&str>,
     from_size: Option<&str>,
 ) -> Result<()> {
-    if let Some(t) = text {
+    if let Some(text) = text {
         if platform == "desktop" {
-            return desktop::tap_by_text(t, companion_path);
+            return desktop::tap_by_text(text, companion_path);
         }
-        return android::tap_element(t, device);
+        if platform == "harmony" {
+            bail!("HarmonyOS tap requires --x and --y; --text is not supported");
+        }
+        return android::tap_element(text, device);
     }
-    let (sx, sy) = scale::apply_scale(x, y, from_size, platform, device, simulator)?;
+    let (x, y) = scale::apply_scale(x, y, from_size, platform, device, simulator)?;
     match platform {
-        "android" => android::tap(sx, sy, device),
-        "ios" => ios::tap(sx, sy, simulator),
-        "aurora" => aurora::tap(sx, sy, device),
-        "desktop" => desktop::tap(sx, sy, companion_path),
+        "android" => android::tap(x, y, device),
+        "ios" => ios::tap(x, y, simulator),
+        "harmony" => harmony::tap(x, y, device),
+        "aurora" => aurora::tap(x, y, device),
+        "desktop" => desktop::tap(x, y, companion_path),
         _ => unreachable!(),
     }
 }
@@ -77,15 +85,19 @@ pub fn long_press(
     simulator: Option<&str>,
     device: Option<&str>,
 ) -> Result<()> {
-    if let Some(t) = text {
-        if let Some((cx, cy)) = android::find_element(t, device)? {
-            return android::long_press(cx, cy, duration, device);
+    if let Some(text) = text {
+        if platform == "harmony" {
+            bail!("HarmonyOS long-press requires --x and --y; --text is not supported");
         }
-        anyhow::bail!("Element '{}' not found for long press", t);
+        if let Some((x, y)) = android::find_element(text, device)? {
+            return android::long_press(x, y, duration, device);
+        }
+        bail!("Element '{}' not found for long press", text);
     }
     match platform {
         "android" => android::long_press(x, y, duration, device),
         "ios" => ios::long_press(x, y, duration, simulator),
+        "harmony" => harmony::long_press(x, y, duration.into(), device),
         "aurora" => aurora::long_press(x, y, duration, device),
         _ => unreachable!(),
     }
@@ -102,6 +114,7 @@ pub fn open_url(
     match platform {
         "android" => android::open_url(url, device),
         "ios" => ios::open_url(url, simulator),
+        "harmony" => harmony::open_url(url, device),
         "aurora" => aurora::open_url(url, device),
         _ => unreachable!(),
     }
@@ -122,11 +135,12 @@ pub fn shell(
     shell_gate::emit_warning_if_needed();
 
     match platform {
-        "android" => { android::shell(command, device)?; }
-        "ios" => { ios::shell(command, simulator)?; }
-        "aurora" => { aurora::shell(command, device)?; }
+        "android" => android::shell(command, device)?,
+        "ios" => ios::shell(command, simulator)?,
+        "harmony" => harmony::shell(command, device)?,
+        "aurora" => aurora::shell(command, device)?,
         _ => unreachable!(),
-    }
+    };
     Ok(())
 }
 
@@ -144,23 +158,24 @@ pub fn swipe(
     device: Option<&str>,
     from_size: Option<&str>,
 ) -> Result<()> {
-    if let Some(dir) = direction {
-        let (cx, cy) = (540, 960);
-        let dist = 400;
-        match dir.to_lowercase().as_str() {
-            "up"    => { x1 = cx; y1 = cy + dist; x2 = cx; y2 = cy - dist; }
-            "down"  => { x1 = cx; y1 = cy - dist; x2 = cx; y2 = cy + dist; }
-            "left"  => { x1 = cx + dist; y1 = cy; x2 = cx - dist; y2 = cy; }
-            "right" => { x1 = cx - dist; y1 = cy; x2 = cx + dist; y2 = cy; }
+    if let Some(direction) = direction {
+        let (center_x, center_y) = (540, 960);
+        let distance = 400;
+        match direction.to_lowercase().as_str() {
+            "up" => { x1 = center_x; y1 = center_y + distance; x2 = center_x; y2 = center_y - distance; }
+            "down" => { x1 = center_x; y1 = center_y - distance; x2 = center_x; y2 = center_y + distance; }
+            "left" => { x1 = center_x + distance; y1 = center_y; x2 = center_x - distance; y2 = center_y; }
+            "right" => { x1 = center_x - distance; y1 = center_y; x2 = center_x + distance; y2 = center_y; }
             _ => {}
         }
     }
-    let (sx1, sy1) = scale::apply_scale(x1, y1, from_size, platform, device, simulator)?;
-    let (sx2, sy2) = scale::apply_scale(x2, y2, from_size, platform, device, simulator)?;
+    let (x1, y1) = scale::apply_scale(x1, y1, from_size, platform, device, simulator)?;
+    let (x2, y2) = scale::apply_scale(x2, y2, from_size, platform, device, simulator)?;
     match platform {
-        "android" => android::swipe(sx1, sy1, sx2, sy2, duration, device),
-        "ios"     => ios::swipe(sx1, sy1, sx2, sy2, duration, simulator),
-        "aurora"  => aurora::swipe(sx1, sy1, sx2, sy2, duration, device),
+        "android" => android::swipe(x1, y1, x2, y2, duration, device),
+        "ios" => ios::swipe(x1, y1, x2, y2, duration, simulator),
+        "harmony" => harmony::swipe(x1, y1, x2, y2, duration.into(), device),
+        "aurora" => aurora::swipe(x1, y1, x2, y2, duration, device),
         _ => unreachable!(),
     }
 }
@@ -177,6 +192,7 @@ pub fn input(
     match platform {
         "android" => android::input_text(text, device),
         "ios" => ios::input_text(text, simulator),
+        "harmony" => harmony::input_text(text, device),
         "aurora" => aurora::input_text(text, device),
         "desktop" => desktop::input_text(text, companion_path),
         _ => unreachable!(),
@@ -193,6 +209,7 @@ pub fn key(
     match platform {
         "android" => android::press_key(key_name, device),
         "ios" => ios::press_key(key_name, simulator),
+        "harmony" => harmony::press_key(key_name, device),
         "aurora" => aurora::press_key(key_name, device),
         "desktop" => desktop::press_key(key_name, companion_path),
         _ => unreachable!(),
@@ -211,21 +228,26 @@ pub fn ui_dump(
     match platform {
         "android" => android::ui_dump(format, device),
         "ios" => ios::ui_dump(format, simulator),
+        "harmony" => {
+            println!("{}", harmony::ui_dump(format, device)?);
+            Ok(())
+        }
         "desktop" => desktop::get_ui(companion_path),
         _ => unreachable!(),
     }
 }
-
 // -- Device management --------------------------------------------------------
 
 pub fn devices(platform: &str) -> Result<()> {
     match platform {
         "android" => android::print_devices(),
         "ios" => ios::print_devices(),
+        "harmony" => harmony::print_devices(),
         "aurora" => aurora::print_devices(),
         _ => {
             android::print_devices()?;
             ios::print_devices()?;
+            harmony::print_devices()?;
             aurora::print_devices()
         }
     }
@@ -240,6 +262,7 @@ pub fn apps(
     match platform {
         "android" => android::list_apps(filter, device),
         "ios" => ios::list_apps(filter, simulator),
+        "harmony" => harmony::list_apps(filter, device),
         "aurora" => aurora::list_apps(filter, device),
         _ => unreachable!(),
     }
@@ -248,6 +271,8 @@ pub fn apps(
 pub fn launch(
     platform: &str,
     package: &str,
+    ability: Option<&str>,
+    module: Option<&str>,
     simulator: Option<&str>,
     device: Option<&str>,
     companion_path: Option<&str>,
@@ -255,6 +280,7 @@ pub fn launch(
     match platform {
         "android" => android::launch_app(package, device),
         "ios" => ios::launch_app(package, simulator),
+        "harmony" => harmony::launch_app(package, ability, module, device),
         "aurora" => aurora::launch_app(package, device),
         "desktop" => desktop::launch_app(package, companion_path),
         _ => unreachable!(),
@@ -271,6 +297,7 @@ pub fn stop(
     match platform {
         "android" => android::stop_app(package, device),
         "ios" => ios::stop_app(package, simulator),
+        "harmony" => harmony::stop_app(package, device),
         "aurora" => aurora::stop_app(package, device),
         "desktop" => desktop::stop_app(package, companion_path),
         _ => unreachable!(),
@@ -286,6 +313,7 @@ pub fn install(
     match platform {
         "android" => android::install_app(path, device),
         "ios" => ios::install_app(path, simulator),
+        "harmony" => harmony::install(path, device),
         "aurora" => aurora::install_app(path, device),
         _ => unreachable!(),
     }
@@ -300,6 +328,7 @@ pub fn uninstall(
     match platform {
         "android" => android::uninstall_app(package, device),
         "ios" => ios::uninstall_app(package, simulator),
+        "harmony" => harmony::uninstall(package, device),
         "aurora" => aurora::uninstall_app(package, device),
         _ => unreachable!(),
     }
@@ -346,6 +375,7 @@ pub fn logs(
     match platform {
         "android" => android::get_logs(filter, lines, device),
         "ios" => ios::get_logs(filter, lines, simulator),
+        "harmony" => harmony::logs(lines, filter, device),
         "aurora" => aurora::get_logs(filter, lines, device),
         _ => unreachable!(),
     }
@@ -359,6 +389,7 @@ pub fn clear_logs(
     match platform {
         "android" => android::clear_logs(device),
         "ios" => ios::clear_logs(simulator),
+        "harmony" => harmony::clear_logs(device),
         "aurora" => aurora::clear_logs(device),
         _ => unreachable!(),
     }
@@ -374,6 +405,7 @@ pub fn system_info(
     match platform {
         "android" => android::get_system_info(device),
         "ios" => ios::get_system_info(simulator),
+        "harmony" => harmony::system_info(device),
         "aurora" => aurora::get_system_info(device),
         _ => unreachable!(),
     }
@@ -574,6 +606,7 @@ pub fn push_file(
 ) -> Result<()> {
     match platform {
         "android" => android::push_file(local, remote, device),
+        "harmony" => harmony::push_file(local, remote, device),
         "aurora" => aurora::push_file(local, remote, device),
         _ => unreachable!(),
     }
@@ -587,6 +620,7 @@ pub fn pull_file(
 ) -> Result<()> {
     match platform {
         "android" => android::pull_file(remote, local, device),
+        "harmony" => harmony::pull_file(remote, local, device),
         "aurora" => aurora::pull_file(remote, local, device),
         _ => unreachable!(),
     }

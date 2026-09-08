@@ -208,7 +208,7 @@ fn force_replaces_existing_files() {
     assert_success(&output);
     let restored = fs::read_to_string(&skill).unwrap();
     assert_ne!(restored, "stale skill content\n");
-    assert!(restored.contains("mcp-devices"));
+    assert!(restored.contains("mcp-devices-cli"));
 
     // --force must fully restore the plugin tree, not just the tampered file.
     assert_plugin_tree(&iso.local_plugin());

@@ -62,6 +62,7 @@ fn which(binary: &str) -> Option<PathBuf> {
     // Check explicit env-var overrides first.
     let env_candidates: &[&str] = match binary {
         "adb" => &["ADB_PATH"],
+        "hdc" => &["HDC_PATH"],
         "java" => &["JAVA_HOME"],
         _ => &[],
     };
@@ -284,6 +285,25 @@ fn check_aurora() -> bool {
 
     all_ok
 }
+/// Returns `true` when the HarmonyOS Device Connector is available.
+fn check_harmony() -> bool {
+    section("HarmonyOS");
+    if let Some(hdc) = which("hdc") {
+        let version = run_output(hdc.to_str().unwrap_or("hdc"), &["--version"])
+            .or_else(|| run_output(hdc.to_str().unwrap_or("hdc"), &["version"]))
+            .unwrap_or_else(|| "?".to_owned());
+        ok(&format!(
+            "hdc found: {} ({})",
+            hdc.display(),
+            version.trim()
+        ));
+        true
+    } else {
+        fail("hdc not found — install the HarmonyOS SDK and set HDC_PATH");
+        false
+    }
+}
+
 
 /// Returns `true` if all *critical* Browser checks pass.
 fn check_browser() -> bool {
@@ -353,11 +373,12 @@ pub fn run() -> Result<()> {
     let ios_ok = check_ios();
     let desktop_ok = check_desktop();
     let aurora_ok = check_aurora();
+    let harmony_ok = check_harmony();
     let browser_ok = check_browser();
 
     println!();
 
-    if android_ok && ios_ok && desktop_ok && aurora_ok && browser_ok {
+    if android_ok && ios_ok && desktop_ok && aurora_ok && harmony_ok && browser_ok {
         println!("{GREEN}All critical dependencies found.{RESET}");
         Ok(())
     } else {

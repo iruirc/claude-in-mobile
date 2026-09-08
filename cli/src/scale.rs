@@ -41,6 +41,11 @@ pub fn apply_scale(
             let (w, h) = crate::android::get_screen_size(device)?;
             (w as f64, h as f64)
         }
+        "harmony" => {
+            let data = crate::harmony::screenshot(device)?;
+            let image = image::load_from_memory(&data)?;
+            (image.width() as f64, image.height() as f64)
+        }
         "ios" => {
             let data = crate::ios::screenshot(simulator)?;
             let img = image::load_from_memory(&data)?;

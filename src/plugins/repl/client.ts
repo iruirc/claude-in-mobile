@@ -1,7 +1,7 @@
 /**
  * JSON-RPC stdio client for the Rust REPL supervisor.
  *
- * Spawns `mcp-devices repl-supervisor` once per plugin instance and
+ * Spawns `mcp-devices-cli repl-supervisor` once per plugin instance and
  * multiplexes requests over its stdin/stdout. Line-delimited JSON; correlation
  * by `id`. The supervisor process is killed on `dispose()` and on Node exit.
  */
@@ -10,7 +10,7 @@ import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { createInterface, type Interface } from "node:readline";
 
 export interface ReplBridgeOptions {
-  /** Path to the mcp-devices binary. Defaults to the env override or "mcp-devices". */
+  /** Path to the native CLI. Defaults to MCP_DEVICES_BIN or "mcp-devices-cli". */
   binaryPath?: string;
   /** Sanitized environment passed to the supervisor process. */
   env?: NodeJS.ProcessEnv;
@@ -53,7 +53,7 @@ export class ReplBridgeClient {
     this.binaryPath =
       opts.binaryPath ??
       process.env.MCP_DEVICES_BIN ??
-      "mcp-devices";
+      "mcp-devices-cli";
     this.env = opts.env ?? minimalEnv();
     this.requestTimeoutMs = opts.requestTimeoutMs ?? 30_000;
     this.startTimeoutMs = opts.startTimeoutMs ?? 10_000;

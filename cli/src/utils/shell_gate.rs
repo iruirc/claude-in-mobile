@@ -1,6 +1,6 @@
 //! Opt-in gate for the `shell` subcommand (CLI-arbitrary-command sink).
 //!
-//! The `shell` family of subcommands (`mcp-devices shell …`) executes
+//! The `shell` family of subcommands (`mcp-devices-cli shell …`) executes
 //! arbitrary device-side commands. While the on-device shell string itself is
 //! quoted via [`crate::utils::device_shell::DeviceShellCmd`] (see #42), the
 //! semantic of the command — "run whatever the caller passed, verbatim" —

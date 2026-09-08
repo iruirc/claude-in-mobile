@@ -5,6 +5,7 @@ pub mod aurora;
 pub mod desktop;
 pub mod ios;
 pub mod kernel;
+pub mod harmony;
 pub mod plugins;
 pub mod screenshot;
 pub mod platform;

@@ -191,12 +191,16 @@ pub fn run(command: Commands) -> Result<()> {
         Commands::Launch {
             platform,
             package,
+            ability,
+            module,
             simulator,
             device,
             companion_path,
         } => device::launch(
             &platform,
             &package,
+            ability.as_deref(),
+            module.as_deref(),
             simulator.as_deref(),
             device.as_deref(),
             companion_path.as_deref(),

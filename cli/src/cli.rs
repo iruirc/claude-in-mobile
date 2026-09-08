@@ -1,13 +1,13 @@
 //! Clap argument definitions for the CLI.
 //!
 //! All `#[derive(Parser)]` and `#[derive(Subcommand)]` types live here,
-//! keeping the public CLI surface in one place.
+//! keeping command execution focused elsewhere.
 
 use clap::{Parser, Subcommand};
 
 #[derive(Parser)]
-#[command(name = "mcp-devices")]
-#[command(about = "Fast CLI for mobile device automation and store management")]
+#[command(name = "mcp-devices-cli")]
+#[command(about = "Fast CLI for Android, iOS, HarmonyOS, Aurora, and Desktop automation")]
 #[command(version)]
 pub struct Cli {
     #[command(subcommand)]
@@ -18,8 +18,8 @@ pub struct Cli {
 pub enum Commands {
     /// Take a screenshot and optionally compress it
     Screenshot {
-        /// Platform: android, ios, aurora, or desktop
-        #[arg(value_parser = ["android", "ios", "aurora", "desktop"])]
+        /// Platform: android, ios, harmony, aurora, or desktop
+        #[arg(long, value_parser = ["android", "ios", "harmony", "aurora", "desktop"])]
         platform: String,
 
         /// Output file path (default: stdout as base64)
@@ -46,7 +46,7 @@ pub enum Commands {
         #[arg(long)]
         simulator: Option<String>,
 
-        /// Android/Aurora device serial (default: first device)
+        /// Android/HarmonyOS/Aurora device serial (default: first device)
         #[arg(long)]
         device: Option<String>,
 
@@ -80,8 +80,8 @@ pub enum Commands {
 
     /// Tap at coordinates
     Tap {
-        /// Platform: android, ios, aurora, or desktop
-        #[arg(value_parser = ["android", "ios", "aurora", "desktop"])]
+        /// Platform: android, ios, harmony, aurora, or desktop
+        #[arg(long, value_parser = ["android", "ios", "harmony", "aurora", "desktop"])]
         platform: String,
 
         /// X coordinate
@@ -106,7 +106,7 @@ pub enum Commands {
         #[arg(long)]
         simulator: Option<String>,
 
-        /// Android/Aurora device serial
+        /// Android/HarmonyOS/Aurora device serial
         #[arg(long)]
         device: Option<String>,
 
@@ -122,8 +122,8 @@ pub enum Commands {
 
     /// Long press at coordinates
     LongPress {
-        /// Platform: android, ios, or aurora
-        #[arg(value_parser = ["android", "ios", "aurora"])]
+        /// Platform: android, ios, harmony, or aurora
+        #[arg(long, value_parser = ["android", "ios", "harmony", "aurora"])]
         platform: String,
 
         /// X coordinate
@@ -144,15 +144,15 @@ pub enum Commands {
         #[arg(long)]
         simulator: Option<String>,
 
-        /// Android/Aurora device serial
+        /// Android/HarmonyOS/Aurora device serial
         #[arg(long)]
         device: Option<String>,
     },
 
     /// Open URL in browser
     OpenUrl {
-        /// Platform: android, ios, or aurora
-        #[arg(value_parser = ["android", "ios", "aurora"])]
+        /// Platform: android, ios, harmony, or aurora
+        #[arg(long, value_parser = ["android", "ios", "harmony", "aurora"])]
         platform: String,
 
         /// URL to open
@@ -162,7 +162,7 @@ pub enum Commands {
         #[arg(long)]
         simulator: Option<String>,
 
-        /// Android/Aurora device serial
+        /// Android/HarmonyOS/Aurora device serial
         #[arg(long)]
         device: Option<String>,
     },
@@ -173,8 +173,8 @@ pub enum Commands {
     /// supply-chain / CI misuse. Use --i-know-what-im-doing or set
     /// MCP_DEVICES_ALLOW_SHELL=1 to enable in scripts.
     Shell {
-        /// Platform: android, ios, or aurora
-        #[arg(value_parser = ["android", "ios", "aurora"])]
+        /// Platform: android, ios, harmony, or aurora
+        #[arg(long, value_parser = ["android", "ios", "harmony", "aurora"])]
         platform: String,
 
         /// Command to execute
@@ -184,7 +184,7 @@ pub enum Commands {
         #[arg(long)]
         simulator: Option<String>,
 
-        /// Android/Aurora device serial
+        /// Android/HarmonyOS/Aurora device serial
         #[arg(long)]
         device: Option<String>,
 
@@ -202,8 +202,8 @@ pub enum Commands {
 
     /// Swipe gesture
     Swipe {
-        /// Platform: android, ios, or aurora
-        #[arg(value_parser = ["android", "ios", "aurora"])]
+        /// Platform: android, ios, harmony, or aurora
+        #[arg(long, value_parser = ["android", "ios", "harmony", "aurora"])]
         platform: String,
 
         /// Start X
@@ -230,7 +230,7 @@ pub enum Commands {
         #[arg(long)]
         simulator: Option<String>,
 
-        /// Android/Aurora device serial
+        /// Android/HarmonyOS/Aurora device serial
         #[arg(long)]
         device: Option<String>,
 
@@ -242,8 +242,8 @@ pub enum Commands {
 
     /// Input text
     Input {
-        /// Platform: android, ios, aurora, or desktop
-        #[arg(value_parser = ["android", "ios", "aurora", "desktop"])]
+        /// Platform: android, ios, harmony, aurora, or desktop
+        #[arg(long, value_parser = ["android", "ios", "harmony", "aurora", "desktop"])]
         platform: String,
 
         /// Text to input
@@ -253,7 +253,7 @@ pub enum Commands {
         #[arg(long)]
         simulator: Option<String>,
 
-        /// Android/Aurora device serial
+        /// Android/HarmonyOS/Aurora device serial
         #[arg(long)]
         device: Option<String>,
 
@@ -264,8 +264,8 @@ pub enum Commands {
 
     /// Press a key/button
     Key {
-        /// Platform: android, ios, aurora, or desktop
-        #[arg(value_parser = ["android", "ios", "aurora", "desktop"])]
+        /// Platform: android, ios, harmony, aurora, or desktop
+        #[arg(long, value_parser = ["android", "ios", "harmony", "aurora", "desktop"])]
         platform: String,
 
         /// Key name (home, back, enter, etc.)
@@ -275,7 +275,7 @@ pub enum Commands {
         #[arg(long)]
         simulator: Option<String>,
 
-        /// Android/Aurora device serial
+        /// Android/HarmonyOS/Aurora device serial
         #[arg(long)]
         device: Option<String>,
 
@@ -286,8 +286,8 @@ pub enum Commands {
 
     /// Dump UI hierarchy
     UiDump {
-        /// Platform: android, ios, or desktop
-        #[arg(value_parser = ["android", "ios", "desktop"])]
+        /// Platform: android, ios, harmony, or desktop
+        #[arg(long, value_parser = ["android", "ios", "harmony", "desktop"])]
         platform: String,
 
         /// Output format: json or xml
@@ -313,15 +313,15 @@ pub enum Commands {
 
     /// List connected devices
     Devices {
-        /// Platform: android, ios, aurora, or all
-        #[arg(value_parser = ["android", "ios", "aurora", "all"], default_value = "all")]
+        /// Platform: android, ios, harmony, aurora, or all
+        #[arg(long, value_parser = ["android", "ios", "harmony", "aurora", "all"], default_value = "all")]
         platform: String,
     },
 
     /// List installed apps
     Apps {
-        /// Platform: android, ios, or aurora
-        #[arg(value_parser = ["android", "ios", "aurora"])]
+        /// Platform: android, ios, harmony, or aurora
+        #[arg(long, value_parser = ["android", "ios", "harmony", "aurora"])]
         platform: String,
 
         /// Filter by package/bundle name
@@ -332,25 +332,33 @@ pub enum Commands {
         #[arg(long)]
         simulator: Option<String>,
 
-        /// Android/Aurora device serial
+        /// Android/HarmonyOS/Aurora device serial
         #[arg(long)]
         device: Option<String>,
     },
 
     /// Launch an app
     Launch {
-        /// Platform: android, ios, aurora, or desktop
-        #[arg(value_parser = ["android", "ios", "aurora", "desktop"])]
+        /// Platform: android, ios, harmony, aurora, or desktop
+        #[arg(long, value_parser = ["android", "ios", "harmony", "aurora", "desktop"])]
         platform: String,
 
         /// Package name (Android/Aurora) or bundle ID (iOS) or app path (Desktop)
         package: String,
 
+        /// HarmonyOS Ability name (defaults to EntryAbility)
+        #[arg(long)]
+        ability: Option<String>,
+
+        /// HarmonyOS module name
+        #[arg(long)]
+        module: Option<String>,
+
         /// iOS Simulator name
         #[arg(long)]
         simulator: Option<String>,
 
-        /// Android/Aurora device serial
+        /// Android/HarmonyOS/Aurora device serial
         #[arg(long)]
         device: Option<String>,
 
@@ -361,8 +369,8 @@ pub enum Commands {
 
     /// Stop/kill an app
     Stop {
-        /// Platform: android, ios, aurora, or desktop
-        #[arg(value_parser = ["android", "ios", "aurora", "desktop"])]
+        /// Platform: android, ios, harmony, aurora, or desktop
+        #[arg(long, value_parser = ["android", "ios", "harmony", "aurora", "desktop"])]
         platform: String,
 
         /// Package name (Android/Aurora) or bundle ID (iOS) or app name (Desktop)
@@ -372,7 +380,7 @@ pub enum Commands {
         #[arg(long)]
         simulator: Option<String>,
 
-        /// Android/Aurora device serial
+        /// Android/HarmonyOS/Aurora device serial
         #[arg(long)]
         device: Option<String>,
 
@@ -383,8 +391,8 @@ pub enum Commands {
 
     /// Uninstall an app
     Uninstall {
-        /// Platform: android, ios, or aurora
-        #[arg(value_parser = ["android", "ios", "aurora"])]
+        /// Platform: android, ios, harmony, or aurora
+        #[arg(long, value_parser = ["android", "ios", "harmony", "aurora"])]
         platform: String,
 
         /// Package name (Android/Aurora) or bundle ID (iOS)
@@ -394,15 +402,15 @@ pub enum Commands {
         #[arg(long)]
         simulator: Option<String>,
 
-        /// Android/Aurora device serial
+        /// Android/HarmonyOS/Aurora device serial
         #[arg(long)]
         device: Option<String>,
     },
 
     /// Install an app
     Install {
-        /// Platform: android, ios, or aurora
-        #[arg(value_parser = ["android", "ios", "aurora"])]
+        /// Platform: android, ios, harmony, or aurora
+        #[arg(long, value_parser = ["android", "ios", "harmony", "aurora"])]
         platform: String,
 
         /// Path to APK (Android), app bundle (iOS), or RPM (Aurora)
@@ -412,7 +420,7 @@ pub enum Commands {
         #[arg(long)]
         simulator: Option<String>,
 
-        /// Android/Aurora device serial
+        /// Android/HarmonyOS/Aurora device serial
         #[arg(long)]
         device: Option<String>,
     },
@@ -455,8 +463,8 @@ pub enum Commands {
 
     /// Get device logs
     Logs {
-        /// Platform: android, ios, or aurora
-        #[arg(value_parser = ["android", "ios", "aurora"])]
+        /// Platform: android, ios, harmony, or aurora
+        #[arg(long, value_parser = ["android", "ios", "harmony", "aurora"])]
         platform: String,
 
         /// Filter by tag/process
@@ -483,37 +491,37 @@ pub enum Commands {
         #[arg(long)]
         simulator: Option<String>,
 
-        /// Android/Aurora device serial
+        /// Android/HarmonyOS/Aurora device serial
         #[arg(long)]
         device: Option<String>,
     },
 
     /// Clear device logs
     ClearLogs {
-        /// Platform: android, ios, or aurora
-        #[arg(value_parser = ["android", "ios", "aurora"])]
+        /// Platform: android, ios, harmony, or aurora
+        #[arg(long, value_parser = ["android", "ios", "harmony", "aurora"])]
         platform: String,
 
         /// iOS Simulator name
         #[arg(long)]
         simulator: Option<String>,
 
-        /// Android/Aurora device serial
+        /// Android/HarmonyOS/Aurora device serial
         #[arg(long)]
         device: Option<String>,
     },
 
     /// Get system info (battery, memory)
     SystemInfo {
-        /// Platform: android, ios, or aurora
-        #[arg(value_parser = ["android", "ios", "aurora"])]
+        /// Platform: android, ios, harmony, or aurora
+        #[arg(long, value_parser = ["android", "ios", "harmony", "aurora"])]
         platform: String,
 
         /// iOS Simulator name
         #[arg(long)]
         simulator: Option<String>,
 
-        /// Android/Aurora device serial
+        /// Android/HarmonyOS/Aurora device serial
         #[arg(long)]
         device: Option<String>,
     },
@@ -599,8 +607,8 @@ pub enum Commands {
 
     /// Push file to device
     PushFile {
-        /// Platform: android or aurora
-        #[arg(value_parser = ["android", "aurora"])]
+        /// Platform: android, harmony, or aurora
+        #[arg(long, value_parser = ["android", "harmony", "aurora"])]
         platform: String,
 
         /// Local file path
@@ -616,8 +624,8 @@ pub enum Commands {
 
     /// Pull file from device
     PullFile {
-        /// Platform: android or aurora
-        #[arg(value_parser = ["android", "aurora"])]
+        /// Platform: android, harmony, or aurora
+        #[arg(long, value_parser = ["android", "harmony", "aurora"])]
         platform: String,
 
         /// Remote file path on device
@@ -1395,7 +1403,7 @@ pub enum FlowCommands {
 
     /// Run the same flow file on multiple devices sequentially
     ///
-    /// Example: `mcp-devices flow parallel android --file steps.json --devices "device1,device2"`
+    /// Example: `mcp-devices-cli flow parallel android --file steps.json --devices "device1,device2"`
     Parallel {
         /// Platform: android, ios, aurora, or desktop
         #[arg(value_parser = ["android", "ios", "aurora", "desktop"])]

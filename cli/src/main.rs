@@ -1,6 +1,6 @@
-//! mcp-devices - Fast CLI for mobile device automation
+//! mcp-devices-cli - Fast native CLI for mobile device automation
 //!
-//! Supports Android (via ADB), iOS (via simctl), Aurora (via audb), Desktop (via companion app)
+//! Supports Android (via ADB), iOS (via simctl), HarmonyOS (via HDC), Aurora (via audb), and Desktop (via companion app).
 //! Also supports Google Play, Huawei AppGallery, and RuStore store management.
 
 mod android;
@@ -12,6 +12,7 @@ mod ios;
 mod kernel;
 mod plugins;
 mod scale;
+mod harmony;
 mod screenshot;
 mod store;
 mod utils;

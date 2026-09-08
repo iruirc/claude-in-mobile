@@ -1,3 +1,7 @@
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { delimiter, join } from "node:path";
+
 import { describe, expect, it } from "vitest";
 
 import { ReplBridgeClient, ReplBridgeError } from "./client.js";
@@ -6,9 +10,43 @@ describe("ReplBridgeClient construction", () => {
   it("falls back to MCP_DEVICES_BIN env override", () => {
     const prior = process.env.MCP_DEVICES_BIN;
     process.env.MCP_DEVICES_BIN = "/nonexistent/path-to-binary-xyz";
-    const c = new ReplBridgeClient();
-    expect(c).toBeInstanceOf(ReplBridgeClient);
-    process.env.MCP_DEVICES_BIN = prior;
+    try {
+      const c = new ReplBridgeClient();
+      expect(c).toBeInstanceOf(ReplBridgeClient);
+    } finally {
+      if (prior === undefined) delete process.env.MCP_DEVICES_BIN;
+      else process.env.MCP_DEVICES_BIN = prior;
+    }
+  });
+
+  it("starts the native companion through the unambiguous CLI alias", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "mcp-devices-cli-"));
+    const companion = join(dir, "mcp-devices-cli");
+    await writeFile(
+      companion,
+      [
+        "#!/usr/bin/env node",
+        `process.stdout.write('{"event":"ready"}\\n');`,
+        `process.stdin.on("data", () => process.stdout.write('{"id":"r1","result":null}\\n'));`,
+        "",
+      ].join("\n"),
+      { mode: 0o755 }
+    );
+
+    const client = new ReplBridgeClient({
+      env: {
+        PATH: `${dir}${delimiter}${process.env.PATH ?? ""}`,
+      },
+      requestTimeoutMs: 2_000,
+      startTimeoutMs: 2_000,
+    });
+
+    try {
+      await expect(client.start()).resolves.toBeUndefined();
+    } finally {
+      await client.dispose();
+      await rm(dir, { recursive: true, force: true });
+    }
   });
 
   it("rejects when binary cannot be spawned", async () => {
