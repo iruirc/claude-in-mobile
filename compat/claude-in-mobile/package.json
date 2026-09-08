@@ -1,7 +1,7 @@
 {
   "name": "claude-in-mobile",
   "version": "4.0.0",
-  "description": "All-in-one edition of mcp-devices — the mcp-devices engine plus every platform (Android, iOS, Web, Desktop, Aurora) bundled and enabled out of the box. Install this if you want everything in one package; install `mcp-devices` if you prefer a slim base with platforms added on demand.",
+  "description": "All-in-one edition of mcp-devices — the mcp-devices engine plus every platform (Android, iOS, Web, Desktop, Aurora, HarmonyOS) bundled and enabled out of the box. Install this if you want everything in one package; install `mcp-devices` if you prefer a slim base with platforms added on demand.",
   "type": "module",
   "bin": {
     "claude-in-mobile": "bin.mjs"
@@ -19,7 +19,7 @@
     "README.md"
   ],
   "engines": {
-    "node": ">=18.0.0"
+    "node": ">=20.0.0"
   },
   "keywords": [
     "mcp",

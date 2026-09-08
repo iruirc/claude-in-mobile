@@ -1,7 +1,7 @@
 {
   "name": "@mcp-devices/plugin-all",
-  "version": "4.1.0",
-  "description": "Meta-package: installs all mcp-devices platform plugins (android, ios, web, desktop, aurora).",
+  "version": "4.2.0",
+  "description": "Meta-package: installs all mcp-devices platform plugins (android, ios, web, desktop, aurora, harmony).",
   "type": "module",
   "files": [
     "README.md"
@@ -19,7 +19,8 @@
     "@mcp-devices/plugin-ios": "*",
     "@mcp-devices/plugin-web": "*",
     "@mcp-devices/plugin-desktop": "*",
-    "@mcp-devices/plugin-aurora": "*"
+    "@mcp-devices/plugin-aurora": "*",
+    "@mcp-devices/plugin-harmony": "*"
   },
   "repository": {
     "type": "git",

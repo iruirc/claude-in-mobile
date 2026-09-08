@@ -73,7 +73,9 @@ jobs:
       - name: Package
         run: |
           ARCHIVE="claude-in-mobile-${{ steps.version.outputs.version }}-${{ matrix.platform }}.tar.gz"
-          tar -czf "$ARCHIVE" -C cli/target/${{ matrix.target }}/release mcp-devices
+          BIN_DIR="cli/target/${{ matrix.target }}/release"
+          ln -sf mcp-devices "$BIN_DIR/mcp-devices-cli"
+          tar -czf "$ARCHIVE" -C "$BIN_DIR" mcp-devices mcp-devices-cli
           shasum -a 256 "$ARCHIVE" > "$ARCHIVE.sha256"
 
       - name: Upload artifact
@@ -99,11 +101,11 @@ jobs:
           FAIL=0
           COUNT=0
           # Guard against silently checking fewer fields than the release
-          # profile promises (Stage 2 = 13). This is the 4.0.1 class: a new
+          # profile promises (Stage 2 = 14). This is the 4.0.1 class: a new
           # manifest is added but the verify loop is not extended, CI stays
           # green on a stale subset, and channels desync. If you add or remove
           # a version field below, update EXPECTED to match.
-          EXPECTED=13
+          EXPECTED=14
 
           PKG=$(jq -r '.version' package.json)
           MARKET=$(jq -r '.plugins[0].version' .claude-plugin/marketplace.json)
@@ -131,7 +133,7 @@ jobs:
 
           # Scoped platform plugins ship on the same version line as the tag
           # (plugin-api is deliberately excluded — independently versioned).
-          for p in plugin-android plugin-ios plugin-web plugin-desktop plugin-aurora plugin-debug plugin-all; do
+          for p in plugin-android plugin-ios plugin-web plugin-desktop plugin-aurora plugin-harmony plugin-debug plugin-all; do
             PV=$(jq -r '.version' "packages/$p/package.json")
             COUNT=$((COUNT + 1))
             echo "packages/$p:                           $PV"
@@ -251,12 +253,12 @@ jobs:
         # each platform is fetched on demand as `@mcp-devices/plugin-<x>`. Those
         # packages must therefore be (re)published on every release at the SAME
         # version as the tag (unlike plugin-api). plugin-all is the meta-package
-        # that depends on all five. Idempotent + prerelease dist-tag, like root.
+        # that depends on all six. Idempotent + prerelease dist-tag, like root.
         # Ordered so dependents publish after their deps (an install-time nicety;
         # `npm publish` itself never resolves dependencies).
         run: |
           TAG_VERSION="${GITHUB_REF_NAME#v}"
-          for p in plugin-android plugin-ios plugin-web plugin-desktop plugin-aurora plugin-debug plugin-all; do
+          for p in plugin-android plugin-ios plugin-web plugin-desktop plugin-aurora plugin-harmony plugin-debug plugin-all; do
             dir="packages/$p"
             NAME=$(jq -r '.name' "$dir/package.json")
             VERSION=$(jq -r '.version' "$dir/package.json")
@@ -384,6 +386,31 @@ jobs:
               except StopIteration:
                   return m.group(0)
           content = re.sub(r'sha256 "[a-f0-9]{64}"', replace_sha, content)
+
+          # npm and the native CLI both historically installed `mcp-devices`.
+          # Keep the native surface reachable through an unambiguous alias even
+          # when npm shadows the Homebrew executable on PATH.
+          install_line = '    bin.install "mcp-devices"'
+          alias_line = '    bin.install_symlink bin/"mcp-devices" => "mcp-devices-cli"'
+          if alias_line not in content:
+              if install_line not in content:
+                  raise RuntimeError(f"{path}: missing native CLI install line")
+              content = content.replace(
+                  install_line,
+                  f"{install_line}\n{alias_line}",
+                  1,
+              )
+
+          test_line = '    system "#{bin}/mcp-devices", "--version"'
+          alias_test_line = '    system "#{bin}/mcp-devices-cli", "--version"'
+          if alias_test_line not in content:
+              if test_line not in content:
+                  raise RuntimeError(f"{path}: missing native CLI test line")
+              content = content.replace(
+                  test_line,
+                  f"{test_line}\n{alias_test_line}",
+                  1,
+              )
 
           with open(path, "w") as f:
               f.write(content)

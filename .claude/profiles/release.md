@@ -64,9 +64,9 @@ issue #43 ERR_REQUIRE_ESM пролежал между 3.10.3 и 3.11.2 и сло
    - publish-npm job должен иметь `id-token: write` permission, если
      `npm publish --provenance` используется. См. 3.11.2.
 
-### Стадия 2 — Версии и манифесты (13 полей — обязательно ВСЕ)
+### Стадия 2 — Версии и манифесты (14 полей — обязательно ВСЕ)
 
-`.github/workflows/release.yml` job `verify-plugin-versions` сверяет **13**
+`.github/workflows/release.yml` job `verify-plugin-versions` сверяет **14**
 версий с тегом и провалит релиз (→ `publish-npm` **skipped**, npm не выйдет)
 если хоть одна не совпадает. 6 top-level манифеста:
 
@@ -77,10 +77,10 @@ issue #43 ERR_REQUIRE_ESM пролежал между 3.10.3 и 3.11.2 и сло
 - [ ] `cli/plugin/.claude-plugin/plugin.json` `version`
 - [ ] `cli/plugin/.grok-plugin/plugin.json` `version`
 
-**+ 7 scoped plugin-пакетов** (mcp-devices edition — их легко забыть, именно так
-сломался 4.0.1: 4 манифеста забампили, 7 плагинов остались на предыдущей версии,
-`verify-plugin-versions` упал, npm publish пропущен, homebrew/GitHub уже ушли на
-новую версию → десинк каналов). Каждый `packages/<p>/package.json` `.version`
+**+ 8 scoped plugin-пакетов** (mcp-devices edition — их легко забыть, именно так
+сломался 4.0.1: 4 манифеста забампили, scoped-плагины остались на предыдущей
+версии, `verify-plugin-versions` упал, npm publish пропущен, homebrew/GitHub уже
+ушли на новую версию → десинк каналов). Каждый `packages/<p>/package.json` `.version`
 обязан == тег:
 
 - [ ] `packages/plugin-android/package.json`
@@ -88,11 +88,12 @@ issue #43 ERR_REQUIRE_ESM пролежал между 3.10.3 и 3.11.2 и сло
 - [ ] `packages/plugin-web/package.json`
 - [ ] `packages/plugin-desktop/package.json`
 - [ ] `packages/plugin-aurora/package.json`
+- [ ] `packages/plugin-harmony/package.json`
 - [ ] `packages/plugin-debug/package.json`
 - [ ] `packages/plugin-all/package.json`
 
 Одной командой:
-`for p in android ios web desktop aurora debug all; do jq --arg v "X.Y.Z" '.version=$v' packages/plugin-$p/package.json > /tmp/pp && mv /tmp/pp packages/plugin-$p/package.json; done`
+`for p in android ios web desktop aurora harmony debug all; do jq --arg v "X.Y.Z" '.version=$v' packages/plugin-$p/package.json > /tmp/pp && mv /tmp/pp packages/plugin-$p/package.json; done`
 
 (`packages/plugin-api/package.json` — НЕ трогать, версионируется независимо,
 CI его исключает.)
@@ -126,13 +127,14 @@ CI его исключает.)
   optional-dep ветки других платформ), восстановить postinstall-симлинк
   `node_modules/claude-in-mobile`, и прогнать `npm ci` на чистом клоне
   (`git clone --depth 1 file://… /tmp/ci-sim && cd /tmp/ci-sim && npm ci`).
-- [ ] **После ЛЮБОГО `npm install` (включая version-бамп):** проверить
-  что lock сохранил linux-ветку optional deps sharp:
-  `grep -c '@emnapi/runtime' package-lock.json` ≥ 4. macOS-локальный
-  `npm ci` это НЕ ловит (linux-ветка не нужна на macOS) — ломается
-  только ubuntu CI (publish-npm/lint). Хронический класс: ударил
+- [ ] **После ЛЮБОГО `npm install` (включая version-бамп):** проверить,
+  что lock сохранил минимум четыре linux-ветки optional deps sharp:
+  `node -e 'const p=require("./package-lock.json").packages;const n=Object.keys(p).filter(k=>k.startsWith("node_modules/@img/sharp-linux"));if(n.length<4)throw Error("missing sharp linux optional deps: "+n.length)'`.
+  macOS-локальный `npm ci` это НЕ ловит (linux-ветки не нужны на macOS) —
+  ломается только ubuntu CI (publish-npm/lint). Хронический класс: ударил
   3.12.0 И 3.13.0. Инкрементальный `npm install` на macOS прунит
-  linux-only entries; только полный rebuild их возвращает.
+  linux-only entries; только полный rebuild их возвращает. Старый
+  `@emnapi/runtime` count больше не является надёжным proxy начиная с sharp 0.35.
 
 - [ ] `npm run build` — zero TypeScript errors. Если падает на
   `@claude-in-mobile/plugin-api` — это регрессия workspace build script
@@ -215,7 +217,7 @@ CI его исключает.)
 | Job                       | Что делает                          | Что может упасть                              |
 |---------------------------|--------------------------------------|------------------------------------------------|
 | build (arm64, x86_64)     | `cargo build --release`              | Rust compile error                             |
-| verify-plugin-versions    | сверка 4 манифестов                  | Не bump-нули один из манифестов (стадия 2)     |
+| verify-plugin-versions    | сверка 14 манифестов                 | Не bump-нули один из манифестов (стадия 2)     |
 | release                   | создаёт GitHub Release с tar.gz      | Permissions                                    |
 | publish-npm               | `npm publish --provenance`           | Build script / id-token permission (3.11.1-2)  |
 | update-homebrew           | патчит Formula в внешнем tap         | `HOMEBREW_TAP_TOKEN` истёк                     |
@@ -280,7 +282,7 @@ CI его исключает.)
 1. **Open issues — гейт релиза.** Если есть отчёт пользователя на
    текущей или предыдущей версии — релиз не выходит, пока он не
    разобран. Это причина появления профиля.
-2. **Версии в 4 файлах, всегда.** `verify-plugin-versions` — наш страж.
+2. **Версии в 14 полях, всегда.** `verify-plugin-versions` — наш страж.
 3. **Smoke runtime ≠ tsc/vitest.** Runtime smoke (`--help`, `import()`,
    binary spawn) ловит классы багов которые не видны на этапе
    компиляции и unit-тестов. Класс #43 (ESM) и класс #44 (deadlock на
