@@ -4,6 +4,7 @@ import * as path from "path";
 import * as os from "os";
 import { createServer } from "net";
 import { WDAClient } from "./wda-client.js";
+import { findRunnerApp } from "./wda-build.js";
 import type { WDAInstanceInfo } from "./wda-types.js";
 
 const DEVICE_WDA_PORT = 8100;
@@ -29,6 +30,7 @@ export class WDAManager {
   private readonly startupTimeout = 30_000;
   private readonly deviceStartupTimeout = 300_000;
   private readonly buildTimeout = 120_000;
+  private readonly derivedDataRoot = path.join(os.homedir(), "Library/Developer/Xcode/DerivedData");
   private disposed = false;
   private cleanupPromise?: Promise<void>;
 
@@ -151,7 +153,7 @@ export class WDAManager {
   }
 
   private async buildWDAIfNeeded(wdaPath: string): Promise<void> {
-    if (fs.existsSync(path.join(wdaPath, "build"))) return;
+    if (findRunnerApp(this.derivedDataRoot)) return;
     console.error("Building WebDriverAgent for first use...");
     try {
       execSync(
