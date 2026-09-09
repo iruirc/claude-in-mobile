@@ -141,7 +141,7 @@ export async function turboFastTrack(
   if (FAST_TRACK_TAP.has(action)
       && typeof args.x === "number" && typeof args.y === "number"
       && !args.text && !args.resourceId && !args.index && !args.label) {
-    const scaled = applyScale(args.x as number, args.y as number, platform, ctx);
+    const scaled = await applyScale(args.x as number, args.y as number, platform, ctx);
     shellCmd = `input tap ${scaled.x} ${scaled.y}`;
     message = `Tapped at (${scaled.x}, ${scaled.y})`;
   }

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
-import { resolveElementCoordinates } from "./resolve-element.js";
+import { resolveElementCoordinates, applyScale } from "./resolve-element.js";
 import type { ToolContext } from "../context.js";
 import { ElementNotFoundError } from "../../errors.js";
 
@@ -311,5 +311,41 @@ describe("resolveElementCoordinates — no coordinates", () => {
     const ctx = makeCtx();
     const result = await resolveElementCoordinates({ action: "tap", platform: "android" }, ctx, "android");
     expect(result).toBeNull();
+  });
+});
+
+/**
+ * Screenshots are captured at device pixels; iOS taps go to WebDriverAgent, which
+ * takes points. A scale that stops at pixels sends the tap 2-3x past its target.
+ */
+describe("applyScale — iOS taps land in the point space WDA expects", () => {
+  it("carries screenshot coordinates into points, not device pixels", async () => {
+    const ctx = makeCtx({
+      getIosClient: () => ({ getScreenPointSize: async () => ({ width: 402, height: 874 }) }) as any,
+    });
+    (ctx.deviceManager as any).getCurrentPlatform = () => "ios";
+    // iPhone 17 Pro: 1206x2622 px = 402x874 pt, screenshot compressed to 442x960.
+    ctx.screenshotScaleMap.set("ios", {
+      scaleX: 1206 / 442,
+      scaleY: 2622 / 960,
+      originalWidth: 1206,
+      originalHeight: 2622,
+    } as any);
+
+    const { x } = await applyScale(353, 92, "ios", ctx);
+
+    // 353 of 442 across a 402-point-wide screen is the gear icon at 321.
+    expect(x).toBe(321);
+  });
+
+  it("leaves Android alone — its taps are already in device pixels", async () => {
+    const ctx = makeCtx();
+    ctx.screenshotScaleMap.set("android", {
+      scaleX: 2, scaleY: 2, originalWidth: 1080, originalHeight: 2400,
+    } as any);
+
+    const { x, y } = await applyScale(100, 200, "android", ctx);
+
+    expect({ x, y }).toEqual({ x: 200, y: 400 });
   });
 });

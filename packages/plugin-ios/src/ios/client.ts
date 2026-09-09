@@ -35,6 +35,7 @@ export class IosClient {
   private readonly wdaManager: WDAManager;
   private readonly ownsWdaManager: boolean;
   private wdaClient?: WDAClient;
+  private screenPointSize?: { width: number; height: number };
 
   constructor(deviceId?: string, wdaManager?: WDAManager) {
     this.wdaManager = wdaManager ?? new WDAManager();
@@ -213,6 +214,18 @@ export class IosClient {
   /**
    * Tap at coordinates
    */
+  /**
+   * Screen size in points — the space WDA's coordinate APIs work in. Screenshots
+   * are captured in device pixels, so callers scaling from one need both.
+   */
+  async getScreenPointSize(deviceIdOverride?: string): Promise<{ width: number; height: number }> {
+    if (!this.screenPointSize) {
+      const wdaClient = await this.ensureWDA(deviceIdOverride);
+      this.screenPointSize = await wdaClient.getWindowSize();
+    }
+    return this.screenPointSize;
+  }
+
   async tap(x: number, y: number, deviceIdOverride?: string): Promise<void> {
     try {
       const wdaClient = await this.ensureWDA(deviceIdOverride);
