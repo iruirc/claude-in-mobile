@@ -10,6 +10,7 @@
 
 import { DeviceManager, createFullDeviceManager, Platform } from "../device-manager.js";
 import type { UiElement } from "../ui-tree/ui-parser.js";
+import type { ScreenshotScale } from "./context/shared-state-class.js";
 
 // Re-export submodule symbols so every existing import path keeps working
 export {
@@ -66,7 +67,7 @@ export interface ToolContext {
   setCachedElements: (platform: string, elements: UiElement[]) => void;
   lastScreenshotMap: Map<string, Buffer>;
   lastUiTreeMap: Map<string, { text: string; timestamp: number }>;
-  screenshotScaleMap: Map<string, { scaleX: number; scaleY: number; originalWidth?: number; originalHeight?: number }>;
+  screenshotScaleMap: Map<string, ScreenshotScale>;
   generateActionHints: (platform?: string) => Promise<string>;
   getElementsForPlatform: (plat: string) => Promise<UiElement[]>;
   iosTreeToUiElements: (tree: any) => UiElement[];

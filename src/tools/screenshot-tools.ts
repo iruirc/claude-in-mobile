@@ -14,8 +14,20 @@ import {
 } from "../utils/image.js";
 import { parseUiHierarchy, UiElement } from "../ui-tree/ui-parser.js";
 import { getUiElements } from "./helpers/get-elements.js";
+import { screenshotStateKey } from "./context/shared-state-class.js";
 
 const STABLE_THRESHOLD_PERCENT = 2;
+
+function readPngDimensions(buffer: Buffer): { width: number; height: number } {
+  if (
+    buffer.length < 24
+    || buffer.readUInt32BE(0) !== 0x89504e47
+    || buffer.readUInt32BE(4) !== 0x0d0a1a0a
+  ) {
+    throw new Error("Screenshot provider returned invalid PNG data");
+  }
+  return { width: buffer.readUInt32BE(16), height: buffer.readUInt32BE(20) };
+}
 
 /**
  * Quality presets shared by the capture handler and the JSON-schema facade.
@@ -138,6 +150,10 @@ export const screenshotTools: ToolDefinition[] = [
         turbo: ctx.turboDefault,
       };
       const currentPlatform = platform ?? ctx.deviceManager.getCurrentPlatform() ?? "android";
+      const stateKey = screenshotStateKey(currentPlatform, deviceId);
+      // A diff/cropped result has no stable full-screen coordinate transform.
+      // Clear any prior transform before capturing so it cannot be reused.
+      ctx.screenshotScaleMap.delete(stateKey);
 
       const captureBuffer = () =>
         ctx.deviceManager.getScreenshotBufferAsync(currentPlatform, deviceId);
@@ -146,8 +162,8 @@ export const screenshotTools: ToolDefinition[] = [
         const pngBuffer = stableMode
           ? await waitForStableScreenshot(captureBuffer)
           : await captureBuffer();
-        const prevBuffer = ctx.lastScreenshotMap.get(currentPlatform);
-        ctx.lastScreenshotMap.set(currentPlatform, pngBuffer);
+        const prevBuffer = ctx.lastScreenshotMap.get(stateKey);
+        ctx.lastScreenshotMap.set(stateKey, pngBuffer);
 
         if (!prevBuffer) {
           const result = compress
@@ -189,9 +205,16 @@ export const screenshotTools: ToolDefinition[] = [
       const pngBuffer = stableMode
         ? await waitForStableScreenshot(captureBuffer)
         : await captureBuffer();
-      ctx.lastScreenshotMap.set(currentPlatform, pngBuffer);
+      ctx.lastScreenshotMap.set(stateKey, pngBuffer);
 
       if (!compress) {
+        const dimensions = readPngDimensions(pngBuffer);
+        ctx.screenshotScaleMap.set(stateKey, {
+          scaleX: 1,
+          scaleY: 1,
+          originalWidth: dimensions.width,
+          originalHeight: dimensions.height,
+        });
         return {
           image: { data: pngBuffer.toString("base64"), mimeType: "image/png" },
         } as unknown as ToolResult;
@@ -203,7 +226,7 @@ export const screenshotTools: ToolDefinition[] = [
       const scaled = scaleX !== 1 || scaleY !== 1;
 
       // Store scale so interaction tools can auto-correct coordinates
-      ctx.screenshotScaleMap.set(currentPlatform, {
+      ctx.screenshotScaleMap.set(stateKey, {
         scaleX, scaleY,
         originalWidth: result.originalWidth,
         originalHeight: result.originalHeight,

@@ -1,10 +1,10 @@
-import { execSync, spawn, type ChildProcess } from "child_process";
+import { execFileSync, execSync, spawn, type ChildProcess } from "child_process";
 import * as fs from "fs";
 import * as path from "path";
 import * as os from "os";
 import { createServer } from "net";
 import { WDAClient } from "./wda-client.js";
-import { findRunnerApp, pickBuildSimulator } from "./wda-build.js";
+import { pickBuildSimulator } from "./wda-build.js";
 import { execSimctl } from "../simctl-exec.js";
 import { parseDevicesJson } from "../simctl-parsers.js";
 import type { WDAInstanceInfo } from "./wda-types.js";
@@ -33,7 +33,7 @@ export class WDAManager {
   private readonly startupTimeout = 30_000;
   private readonly deviceStartupTimeout = 300_000;
   private readonly buildTimeout = 120_000;
-  private readonly derivedDataRoot = path.join(os.homedir(), "Library/Developer/Xcode/DerivedData");
+  private readonly derivedDataPath = path.join(os.homedir(), "Library/Caches/mcp-devices/WebDriverAgent");
   private disposed = false;
   private cleanupPromise?: Promise<void>;
 
@@ -167,17 +167,26 @@ export class WDAManager {
   }
 
   private async buildWDAIfNeeded(wdaPath: string): Promise<void> {
-    if (findRunnerApp(this.derivedDataRoot)) return;
     const devices = parseDevicesJson(execSimctl(["list", "devices", "-j"]));
     const destination = this.resolveSimulatorDestination(devices);
-    console.error("Building WebDriverAgent for first use...");
+    console.error("Preparing WebDriverAgent for first use...");
     try {
-      execSync(
-        "xcodebuild build-for-testing -project WebDriverAgent.xcodeproj " +
-        `-scheme WebDriverAgentRunner -destination '${destination}' `
-        + "CODE_SIGNING_ALLOWED=NO",
-        { cwd: wdaPath, timeout: this.buildTimeout, stdio: "pipe", maxBuffer: 50 * 1024 * 1024 },
-      );
+      // Always invoke xcodebuild: its incremental build graph is the reliable
+      // freshness check. A filesystem probe cannot distinguish another WDA
+      // checkout or stale sources from the project being launched.
+      execFileSync("xcodebuild", [
+        "build-for-testing",
+        "-project", "WebDriverAgent.xcodeproj",
+        "-scheme", "WebDriverAgentRunner",
+        "-destination", destination,
+        "-derivedDataPath", this.derivedDataPath,
+        "CODE_SIGNING_ALLOWED=NO",
+      ], {
+        cwd: wdaPath,
+        timeout: this.buildTimeout,
+        stdio: "pipe",
+        maxBuffer: 50 * 1024 * 1024,
+      });
     } catch (error) {
       const details = error as { stderr?: Buffer | string; stdout?: Buffer | string; message?: string };
       const message = details.stderr?.toString() || details.stdout?.toString() || details.message || String(error);
@@ -195,6 +204,7 @@ export class WDAManager {
       "-project", "WebDriverAgent.xcodeproj",
       "-scheme", "WebDriverAgentRunner",
       "-destination", `platform=iOS Simulator,id=${deviceId}`,
+      "-derivedDataPath", this.derivedDataPath,
     ], {
       cwd: wdaPath,
       env: { ...process.env, USE_PORT: String(port) },
@@ -385,10 +395,9 @@ export class WDAManager {
           RESERVED_PORTS.add(port);
           server.close(() => resolve(true));
         });
-        // Probe the wildcard address: WebDriverAgent binds 0.0.0.0, and a probe
-        // pinned to 127.0.0.1 does not collide with it, so a port another
-        // process already serves would be reported free.
-        server.listen(port);
+        // Match WebDriverAgent's IPv4 wildcard bind exactly. Omitting host lets
+        // Node choose IPv6 `::`, which can coexist with an occupied 0.0.0.0 port.
+        server.listen(port, "0.0.0.0");
       });
       if (available) return port;
     }

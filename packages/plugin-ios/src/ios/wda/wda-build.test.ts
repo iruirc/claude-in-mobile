@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { delimiter, join } from "node:path";
 
@@ -12,7 +12,7 @@ import { WDAManager } from "./wda-manager.js";
  */
 
 interface BuildHarness {
-  derivedDataRoot: string;
+  derivedDataPath: string;
   buildWDAIfNeeded(wdaPath: string): Promise<void>;
 }
 
@@ -32,7 +32,7 @@ const DEVICES_JSON = JSON.stringify({
 describe("WDAManager build path", () => {
   let workDir: string;
   let wdaPath: string;
-  let derivedDataRoot: string;
+  let derivedDataPath: string;
   let buildArgsLog: string;
   let devicesJson: string;
   let savedPath: string | undefined;
@@ -40,7 +40,7 @@ describe("WDAManager build path", () => {
   beforeEach(() => {
     workDir = mkdtempSync(join(tmpdir(), "cim-wda-build-"));
     wdaPath = join(workDir, "wda");
-    derivedDataRoot = join(workDir, "DerivedData");
+    derivedDataPath = join(workDir, "DerivedData");
     buildArgsLog = join(workDir, "xcodebuild-args");
     devicesJson = join(workDir, "devices.json");
 
@@ -48,7 +48,7 @@ describe("WDAManager build path", () => {
     // appium-webdriveragent ships `build/` as its TypeScript output — always present,
     // and unrelated to whether xcodebuild has ever run.
     mkdirSync(join(wdaPath, "build"), { recursive: true });
-    mkdirSync(derivedDataRoot, { recursive: true });
+    mkdirSync(derivedDataPath, { recursive: true });
 
     const bin = join(workDir, "bin");
     mkdirSync(bin, { recursive: true });
@@ -67,32 +67,27 @@ describe("WDAManager build path", () => {
     rmSync(workDir, { recursive: true, force: true });
   });
 
-  it("builds when DerivedData holds no runner app, despite the npm build/ directory", async () => {
+  it("runs xcodebuild despite the unrelated npm build directory", async () => {
     const manager = new WDAManager();
-    harness(manager).derivedDataRoot = derivedDataRoot;
+    harness(manager).derivedDataPath = derivedDataPath;
 
     await harness(manager).buildWDAIfNeeded(wdaPath);
 
-    expect(existsSync(buildArgsLog)).toBe(true);
+    expect(readFileSync(buildArgsLog, "utf8")).toContain("build-for-testing");
   });
 
-  it("skips the build when DerivedData already holds the runner app", async () => {
-    mkdirSync(
-      join(derivedDataRoot, "WebDriverAgent-abc123", "Build", "Products",
-           "Debug-iphonesimulator", "WebDriverAgentRunner-Runner.app"),
-      { recursive: true },
-    );
+  it("uses one deterministic DerivedData path for incremental builds", async () => {
     const manager = new WDAManager();
-    harness(manager).derivedDataRoot = derivedDataRoot;
+    harness(manager).derivedDataPath = derivedDataPath;
 
     await harness(manager).buildWDAIfNeeded(wdaPath);
 
-    expect(existsSync(buildArgsLog)).toBe(false);
+    expect(readFileSync(buildArgsLog, "utf8")).toContain(`-derivedDataPath ${derivedDataPath}`);
   });
 
   it("targets a booted simulator instead of a hardcoded device name", async () => {
     const manager = new WDAManager();
-    harness(manager).derivedDataRoot = derivedDataRoot;
+    harness(manager).derivedDataPath = derivedDataPath;
 
     await harness(manager).buildWDAIfNeeded(wdaPath);
 
@@ -104,30 +99,30 @@ describe("WDAManager build path", () => {
   it("reports that no simulator is available instead of failing obscurely", async () => {
     writeFileSync(devicesJson, JSON.stringify({ devices: {} }));
     const manager = new WDAManager();
-    harness(manager).derivedDataRoot = derivedDataRoot;
+    harness(manager).derivedDataPath = derivedDataPath;
 
     await expect(harness(manager).buildWDAIfNeeded(wdaPath)).rejects.toThrow(/no iOS simulator/i);
   });
 
   it("builds the simulator runner without code signing", async () => {
     const manager = new WDAManager();
-    harness(manager).derivedDataRoot = derivedDataRoot;
+    harness(manager).derivedDataPath = derivedDataPath;
 
     await harness(manager).buildWDAIfNeeded(wdaPath);
 
     expect(readFileSync(buildArgsLog, "utf8")).toContain("CODE_SIGNING_ALLOWED=NO");
   });
 
-  // A cold `build-for-testing` writes ~1 MB of progress to stdout; execSync's default
-  // maxBuffer is exactly that, and Node SIGTERMs the child once it is exceeded.
-  it("survives a build whose output exceeds the default execSync buffer", async () => {
+  // A cold `build-for-testing` writes ~1 MB of progress to stdout; the child
+  // process default maxBuffer is exactly that and terminates xcodebuild early.
+  it("survives build output larger than the child-process default buffer", async () => {
     writeFileSync(
       join(workDir, "bin", "xcodebuild"),
       `#!/bin/sh\nawk 'BEGIN { for (i = 0; i < 40000; i++) print "xcodebuild progress line padding" }'\nexit 0\n`,
     );
     chmodSync(join(workDir, "bin", "xcodebuild"), 0o755);
     const manager = new WDAManager();
-    harness(manager).derivedDataRoot = derivedDataRoot;
+    harness(manager).derivedDataPath = derivedDataPath;
 
     await expect(harness(manager).buildWDAIfNeeded(wdaPath)).resolves.toBeUndefined();
   });

@@ -33,7 +33,7 @@ afterEach(() => {
 });
 
 describe("IosClient session lifetime", () => {
-  it("recreates a session WDA has dropped instead of reusing the dead one", async () => {
+  it("recreates an evicted session once across concurrent client calls", async () => {
     const manager = new WDAManager();
     (manager as unknown as ManagerHarness).publishInstance("device-a", 8_181, fakeChild(20_001));
     const client = new IosClient("device-a", manager);
@@ -57,9 +57,42 @@ describe("IosClient session lifetime", () => {
     await harness.ensureWDA();
     expect(harness.wdaClient?.sessionId).toBe("session-1");
 
-    await harness.ensureWDA();
+    await Promise.all([harness.ensureWDA(), harness.ensureWDA()]);
 
+    expect(created).toBe(2);
     expect(harness.wdaClient?.sessionId).toBe("session-2");
+    await manager.cleanup();
+  });
+
+  it("refreshes cached point dimensions after the selected device changes", async () => {
+    const manager = new WDAManager();
+    (manager as unknown as ManagerHarness).publishInstance("device-a", 8_181, fakeChild(20_001));
+    (manager as unknown as ManagerHarness).publishInstance("device-b", 8_182, fakeChild(20_002));
+    const client = new IosClient("device-a", manager);
+    let windowRequests = 0;
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
+      const url = String(input);
+      const method = (init as RequestInit | undefined)?.method ?? "GET";
+      if (method === "POST" && url.endsWith("/session")) {
+        return jsonResponse({ sessionId: url.includes(":8181") ? "session-a" : "session-b" });
+      }
+      if (url.endsWith("/window/size")) {
+        windowRequests += 1;
+        return jsonResponse({
+          value: url.includes(":8181")
+            ? { width: 390, height: 844 }
+            : { width: 430, height: 932 },
+        });
+      }
+      return jsonResponse({ value: {} });
+    });
+
+    await expect(client.getScreenPointSize()).resolves.toEqual({ width: 390, height: 844 });
+    await expect(client.getScreenPointSize()).resolves.toEqual({ width: 390, height: 844 });
+    client.setDevice("device-b");
+    await expect(client.getScreenPointSize()).resolves.toEqual({ width: 430, height: 932 });
+
+    expect(windowRequests).toBe(2);
     await manager.cleanup();
   });
 });

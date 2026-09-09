@@ -7,13 +7,13 @@ interface PortHarness {
   reservePort(): Promise<number>;
 }
 
-/** Bind the way WebDriverAgent does — the wildcard address, not a single interface. */
+/** Bind exactly as WebDriverAgent does: the IPv4 wildcard address. */
 function bind(port: number): Promise<Server | undefined> {
   return new Promise((resolve) => {
     const server = createServer();
     server.once("error", () => resolve(undefined));
     server.once("listening", () => resolve(server));
-    server.listen(port);
+    server.listen(port, "0.0.0.0");
   });
 }
 

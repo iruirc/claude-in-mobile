@@ -1,4 +1,15 @@
 import type { UiElement } from "../../ui-tree/ui-parser.js";
+export interface ScreenshotScale {
+  scaleX: number;
+  scaleY: number;
+  originalWidth: number;
+  originalHeight: number;
+}
+
+export function screenshotStateKey(platform: string, deviceId?: string): string {
+  return deviceId ? `${platform}:${deviceId}` : platform;
+}
+
 
 /**
  * SharedState — encapsulates the per-platform caches that used to live as
@@ -10,7 +21,7 @@ export class SharedState {
   readonly cachedElementsMap = new Map<string, UiElement[]>();
   readonly lastScreenshotMap = new Map<string, Buffer>();
   readonly lastUiTreeMap = new Map<string, { text: string; timestamp: number }>();
-  readonly screenshotScaleMap = new Map<string, { scaleX: number; scaleY: number }>();
+  readonly screenshotScaleMap = new Map<string, ScreenshotScale>();
 
   getCachedElements(platform: string): UiElement[] {
     return this.cachedElementsMap.get(platform) ?? [];

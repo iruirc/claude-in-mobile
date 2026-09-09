@@ -8,14 +8,14 @@
  */
 
 import type { UiElement } from "../../ui-tree/ui-parser.js";
+import type { ScreenshotScale } from "./shared-state-class.js";
 import { getDefaultRuntimeContext } from "../../runtime/runtime-context.js";
 
 const _state = getDefaultRuntimeContext().sharedState;
 
 export const lastScreenshotMap: Map<string, Buffer> = _state.lastScreenshotMap;
 export const lastUiTreeMap: Map<string, { text: string; timestamp: number }> = _state.lastUiTreeMap;
-export const screenshotScaleMap: Map<string, { scaleX: number; scaleY: number }> =
-  _state.screenshotScaleMap;
+export const screenshotScaleMap: Map<string, ScreenshotScale> = _state.screenshotScaleMap;
 
 export function getCachedElements(platform: string): UiElement[] {
   return _state.getCachedElements(platform);

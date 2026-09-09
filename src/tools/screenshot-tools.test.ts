@@ -137,3 +137,26 @@ describe("screen_capture — preset applies (#56)", () => {
     });
   });
 });
+
+describe("screen_capture — coordinate transform state", () => {
+  const handler = findHandler("screen_capture");
+
+  it("records full-resolution PNG dimensions per device when compression is disabled", async () => {
+    const source = await solidPngSized(1206, 2622, 0x112233ff);
+    const ctx = makeCtx({
+      deviceManager: {
+        getCurrentPlatform: vi.fn(() => "ios"),
+        getScreenshotBufferAsync: vi.fn(async () => source),
+      } as any,
+    });
+
+    await handler({ platform: "ios", deviceId: "device-a", compress: false }, ctx);
+
+    expect(ctx.screenshotScaleMap.get("ios:device-a")).toEqual({
+      scaleX: 1,
+      scaleY: 1,
+      originalWidth: 1206,
+      originalHeight: 2622,
+    });
+  });
+});

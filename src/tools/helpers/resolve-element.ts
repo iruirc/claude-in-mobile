@@ -11,6 +11,7 @@ import type { Platform } from "../../device-manager.js";
 import { findByText, findByResourceId } from "../../ui-tree/ui-parser.js";
 import { ElementNotFoundError } from "../../errors.js";
 import { getUiElements } from "./get-elements.js";
+import { screenshotStateKey } from "../context/shared-state-class.js";
 
 export interface ResolvedCoordinates {
   x: number;
@@ -33,33 +34,28 @@ export async function applyScale(
   y: number,
   platform: string | undefined,
   ctx: ToolContext,
+  deviceId?: string,
 ): Promise<{ x: number; y: number }> {
-  const key = platform ?? ctx.deviceManager.getCurrentPlatform() ?? "android";
-  const scale = ctx.screenshotScaleMap.get(key);
-  if (!scale || (scale.scaleX === 1 && scale.scaleY === 1)) return { x, y };
+  const platformKey = platform ?? ctx.deviceManager.getCurrentPlatform() ?? "android";
+  const scale = ctx.screenshotScaleMap.get(screenshotStateKey(platformKey, deviceId));
+  if (!scale) return { x, y };
 
   let { scaleX, scaleY } = scale;
-  if (key === "ios") {
+  if (platformKey === "ios") {
     // Screenshots are measured in device pixels; WDA's coordinate APIs take
-    // points. Without this the tap lands scale-factor times past its target.
-    const points = await iosPointSize(ctx);
-    if (points && scale.originalWidth && scale.originalHeight) {
-      scaleX /= scale.originalWidth / points.width;
-      scaleY /= scale.originalHeight / points.height;
+    // points. Apply this even for an uncompressed 1× screenshot.
+    const points = await ctx.deviceManager
+      .getIosClient(deviceId)
+      .getScreenPointSize(deviceId);
+    if (points.width <= 0 || points.height <= 0) {
+      throw new Error("WebDriverAgent returned an invalid iOS screen size");
     }
+    scaleX *= points.width / scale.originalWidth;
+    scaleY *= points.height / scale.originalHeight;
   }
 
+  if (scaleX === 1 && scaleY === 1) return { x, y };
   return { x: Math.round(x * scaleX), y: Math.round(y * scaleY) };
-}
-
-async function iosPointSize(
-  ctx: ToolContext,
-): Promise<{ width: number; height: number } | undefined> {
-  try {
-    return await ctx.deviceManager.getIosClient().getScreenPointSize?.();
-  } catch {
-    return undefined;
-  }
 }
 
 /**

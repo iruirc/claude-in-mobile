@@ -154,7 +154,7 @@ describe("WDAClient — the UI tree must carry element geometry", () => {
   it("reads a source that carries rects, not the geometry-free accessibility tree", async () => {
     const client = new WDAClient(8100);
     (client as unknown as { sessionId: string | null }).sessionId = "TEST";
-    vi.stubGlobal("fetch", vi.fn(async (url: unknown) =>
+    const fetchMock = vi.fn(async (url: unknown) =>
       String(url).includes("/wda/accessibleSource")
         ? jsonResponse({ status: 0, value: { type: "XCUIElementTypeApplication", name: "App", children: [] } })
         : jsonResponse({
@@ -165,10 +165,14 @@ describe("WDAClient — the UI tree must carry element geometry", () => {
               children: [],
             },
           }),
-    ));
+    );
+    vi.stubGlobal("fetch", fetchMock);
 
     const tree = await client.getSourceTree();
 
     expect((tree as { rect?: unknown }).rect).toBeDefined();
+    expect(fetchMock.mock.calls[0]?.[0]).toBe(
+      "http://localhost:8100/session/TEST/source?format=json",
+    );
   });
 });

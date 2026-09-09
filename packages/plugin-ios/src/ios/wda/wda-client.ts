@@ -12,19 +12,34 @@ export class WDAClient {
   private baseUrl: string;
   private sessionId: string | null = null;
   private readonly operationTimeout = 10000;
+  private ensureSessionPromise?: Promise<void>;
 
   constructor(port: number) {
     this.baseUrl = `http://localhost:${port}`;
   }
 
   async ensureSession(deviceId: string): Promise<void> {
+    const inFlight = this.ensureSessionPromise;
+    if (inFlight) return inFlight;
+
+    const ensuring = this.ensureSessionNow(deviceId);
+    this.ensureSessionPromise = ensuring;
+    try {
+      await ensuring;
+    } finally {
+      if (this.ensureSessionPromise === ensuring) {
+        this.ensureSessionPromise = undefined;
+      }
+    }
+  }
+
+  private async ensureSessionNow(deviceId: string): Promise<void> {
     if (this.sessionId) {
       try {
-        // Verify session is still valid
+        // Verify session is still valid.
         await this.request("GET", `/session/${this.sessionId}`);
         return;
       } catch (error: unknown) {
-        // Session is invalid, clear it
         const msg = error instanceof Error ? error.message : String(error);
         console.error("WDA session invalid, recreating:", msg);
         this.sessionId = null;
@@ -59,14 +74,21 @@ export class WDAClient {
   }
 
   async deleteSession(): Promise<void> {
-    if (this.sessionId) {
-      try {
-        await this.request("DELETE", `/session/${this.sessionId}`);
-      } catch {
-        // Ignore errors on cleanup
-      }
-      this.sessionId = null;
+    // Cleanup must not race a session creation that could otherwise complete
+    // after deletion and leave an unowned live session behind.
+    try {
+      await this.ensureSessionPromise;
+    } catch {
+      // The caller is already cleaning up the failed transition.
     }
+    const sessionId = this.sessionId;
+    if (!sessionId) return;
+    try {
+      await this.request("DELETE", `/session/${sessionId}`);
+    } catch {
+      // Ignore errors on cleanup.
+    }
+    if (this.sessionId === sessionId) this.sessionId = null;
   }
 
   async getSourceTree(): Promise<UITreeNode> {

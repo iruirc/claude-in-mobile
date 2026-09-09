@@ -35,7 +35,10 @@ export class IosClient {
   private readonly wdaManager: WDAManager;
   private readonly ownsWdaManager: boolean;
   private wdaClient?: WDAClient;
-  private screenPointSize?: { width: number; height: number };
+  private screenPointSize?: {
+    deviceId: string;
+    size: { width: number; height: number };
+  };
 
   constructor(deviceId?: string, wdaManager?: WDAManager) {
     this.wdaManager = wdaManager ?? new WDAManager();
@@ -53,6 +56,7 @@ export class IosClient {
   async cleanup(): Promise<void> {
     if (this.ownsWdaManager) await this.wdaManager.cleanup();
     this.wdaClient = undefined;
+    this.screenPointSize = undefined;
   }
 
   /** True unless the device id belongs to a connected physical device. */
@@ -146,6 +150,7 @@ export class IosClient {
     validateDeviceId(deviceId);
     if (this.deviceId !== deviceId) {
       this.wdaClient = undefined;
+      this.screenPointSize = undefined;
     }
     this.deviceId = deviceId;
   }
@@ -244,18 +249,23 @@ export class IosClient {
   }
 
   /**
-   * Tap at coordinates
-   */
-  /**
    * Screen size in points — the space WDA's coordinate APIs work in. Screenshots
    * are captured in device pixels, so callers scaling from one need both.
    */
   async getScreenPointSize(deviceIdOverride?: string): Promise<{ width: number; height: number }> {
-    if (!this.screenPointSize) {
-      const wdaClient = await this.ensureWDA(deviceIdOverride);
-      this.screenPointSize = await wdaClient.getWindowSize();
+    const requestedId = deviceIdOverride ?? this.deviceId;
+    if (requestedId && this.screenPointSize?.deviceId === requestedId) {
+      return this.screenPointSize.size;
     }
-    return this.screenPointSize;
+
+    const wdaClient = await this.ensureWDA(deviceIdOverride);
+    const effectiveId = deviceIdOverride ?? this.deviceId;
+    if (!effectiveId) throw new Error("No iOS device selected");
+    if (this.screenPointSize?.deviceId === effectiveId) return this.screenPointSize.size;
+
+    const size = await wdaClient.getWindowSize();
+    this.screenPointSize = { deviceId: effectiveId, size };
+    return size;
   }
 
   async tap(x: number, y: number, deviceIdOverride?: string): Promise<void> {

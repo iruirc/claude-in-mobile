@@ -58,7 +58,7 @@ export type RawLaunchOptionsLike = Record<string, unknown>;
 export interface IosClientLike {
   openUrl(url: string, deviceId?: string): void | Promise<void>;
   /** Screen size in points — the space WDA's coordinate APIs work in. */
-  getScreenPointSize?(deviceId?: string): Promise<{ width: number; height: number }>;
+  getScreenPointSize(deviceId?: string): Promise<{ width: number; height: number }>;
   cleanup(): void | Promise<void>;
   [key: string]: any;
 }
