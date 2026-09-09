@@ -66,7 +66,7 @@ export interface ToolContext {
   setCachedElements: (platform: string, elements: UiElement[]) => void;
   lastScreenshotMap: Map<string, Buffer>;
   lastUiTreeMap: Map<string, { text: string; timestamp: number }>;
-  screenshotScaleMap: Map<string, { scaleX: number; scaleY: number }>;
+  screenshotScaleMap: Map<string, { scaleX: number; scaleY: number; originalWidth?: number; originalHeight?: number }>;
   generateActionHints: (platform?: string) => Promise<string>;
   getElementsForPlatform: (plat: string) => Promise<UiElement[]>;
   iosTreeToUiElements: (tree: any) => UiElement[];

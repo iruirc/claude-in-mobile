@@ -28,19 +28,38 @@ export interface ResolvedCoordinates {
 /**
  * Apply screenshot scale to raw coordinates from Claude (image space -> device space).
  */
-export function applyScale(
+export async function applyScale(
   x: number,
   y: number,
   platform: string | undefined,
   ctx: ToolContext,
-): { x: number; y: number } {
+): Promise<{ x: number; y: number }> {
   const key = platform ?? ctx.deviceManager.getCurrentPlatform() ?? "android";
   const scale = ctx.screenshotScaleMap.get(key);
   if (!scale || (scale.scaleX === 1 && scale.scaleY === 1)) return { x, y };
-  return {
-    x: Math.round(x * scale.scaleX),
-    y: Math.round(y * scale.scaleY),
-  };
+
+  let { scaleX, scaleY } = scale;
+  if (key === "ios") {
+    // Screenshots are measured in device pixels; WDA's coordinate APIs take
+    // points. Without this the tap lands scale-factor times past its target.
+    const points = await iosPointSize(ctx);
+    if (points && scale.originalWidth && scale.originalHeight) {
+      scaleX /= scale.originalWidth / points.width;
+      scaleY /= scale.originalHeight / points.height;
+    }
+  }
+
+  return { x: Math.round(x * scaleX), y: Math.round(y * scaleY) };
+}
+
+async function iosPointSize(
+  ctx: ToolContext,
+): Promise<{ width: number; height: number } | undefined> {
+  try {
+    return await ctx.deviceManager.getIosClient().getScreenPointSize?.();
+  } catch {
+    return undefined;
+  }
 }
 
 /**

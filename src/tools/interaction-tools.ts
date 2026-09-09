@@ -60,7 +60,7 @@ export const interactionTools: ToolDefinition[] = [
       let { x, y } = resolved;
 
       if (resolved.fromRawArgs) {
-        ({ x, y } = applyScale(x, y, currentPlatform ?? undefined, ctx));
+        ({ x, y } = await applyScale(x, y, currentPlatform ?? undefined, ctx));
       }
 
       await ctx.deviceManager.tap(x, y, platform, args.targetPid, deviceId);
@@ -107,7 +107,7 @@ export const interactionTools: ToolDefinition[] = [
       let { x, y } = resolved;
 
       if (resolved.fromRawArgs) {
-        ({ x, y } = applyScale(x, y, currentPlatform ?? undefined, ctx));
+        ({ x, y } = await applyScale(x, y, currentPlatform ?? undefined, ctx));
       }
 
       await ctx.deviceManager.doubleTap(x, y, interval, platform, deviceId);
@@ -165,7 +165,7 @@ export const interactionTools: ToolDefinition[] = [
       let { x, y } = resolved;
 
       if (resolved.fromRawArgs) {
-        ({ x, y } = applyScale(x, y, currentPlatform ?? undefined, ctx));
+        ({ x, y } = await applyScale(x, y, currentPlatform ?? undefined, ctx));
       }
 
       await ctx.deviceManager.longPress(x, y, duration, platform, deviceId);
@@ -214,8 +214,8 @@ export const interactionTools: ToolDefinition[] = [
       if (x1 !== undefined && y1 !== undefined &&
           x2 !== undefined && y2 !== undefined) {
         const duration = args.duration;
-        const p1 = applyScale(x1, y1, currentPlatform ?? undefined, ctx);
-        const p2 = applyScale(x2, y2, currentPlatform ?? undefined, ctx);
+        const p1 = await applyScale(x1, y1, currentPlatform ?? undefined, ctx);
+        const p2 = await applyScale(x2, y2, currentPlatform ?? undefined, ctx);
         await ctx.deviceManager.swipe(p1.x, p1.y, p2.x, p2.y, duration, platform, deviceId);
         ctx.invalidateUiTreeCache(currentPlatform ?? undefined);
         let result = `Swiped from (${p1.x}, ${p1.y}) to (${p2.x}, ${p2.y})`;

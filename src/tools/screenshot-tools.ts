@@ -203,7 +203,11 @@ export const screenshotTools: ToolDefinition[] = [
       const scaled = scaleX !== 1 || scaleY !== 1;
 
       // Store scale so interaction tools can auto-correct coordinates
-      ctx.screenshotScaleMap.set(currentPlatform, { scaleX, scaleY });
+      ctx.screenshotScaleMap.set(currentPlatform, {
+        scaleX, scaleY,
+        originalWidth: result.originalWidth,
+        originalHeight: result.originalHeight,
+      });
 
       return {
         image: { data: result.data, mimeType: result.mimeType },
