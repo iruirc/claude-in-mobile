@@ -19,6 +19,7 @@ export const EXEC_TIMEOUT_MS = 15_000;
 
 /** Extended timeout for raw byte adb commands (screenshots, file pulls). */
 export const EXEC_RAW_TIMEOUT_MS = 30_000;
+export const EXEC_TRANSFER_TIMEOUT_MS = 120_000;
 
 /** Cap stdout buffers at 50 MiB — sufficient for a 4K PNG screenshot. */
 const MAX_BUFFER = 50 * 1024 * 1024;
@@ -86,6 +87,22 @@ export async function execAdbRawAsync(args: string[], deviceId: string | undefin
     return stdout as unknown as Buffer;
   } catch (error: unknown) {
     throw translateExecError(error, fullArgs, EXEC_RAW_TIMEOUT_MS);
+  }
+}
+
+/** Long-running adb command that writes payload directly to a caller-controlled file path. */
+export async function execAdbFileTransfer(args: string[], deviceId: string | undefined): Promise<string> {
+  const adbBin = resolveAdbPath();
+  const fullArgs = [...deviceArgs(deviceId), ...args];
+  try {
+    const { stdout } = await execFileAsync(adbBin, fullArgs, {
+      timeout: EXEC_TRANSFER_TIMEOUT_MS,
+      maxBuffer: 1024 * 1024,
+      encoding: "utf-8",
+    });
+    return stdout.trim();
+  } catch (error: unknown) {
+    throw translateExecError(error, fullArgs, EXEC_TRANSFER_TIMEOUT_MS);
   }
 }
 

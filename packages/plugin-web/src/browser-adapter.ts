@@ -5,12 +5,23 @@
  * Those capabilities are NOT implemented here -- no more "not supported" throws.
  */
 
-import type { CorePlatformAdapter } from "mcp-devices/adapters/platform-adapter";
+import type {
+  CorePlatformAdapter,
+  PerformanceTraceAdapter,
+  PerformanceTraceCapture,
+  PerformanceTraceHandle,
+  PerformanceTraceStartOptions,
+  HeapSnapshotAdapter,
+  HeapSnapshotCapture,
+  HeapSnapshotOptions,
+} from "mcp-devices/adapters/platform-adapter";
 import type { Platform, Device } from "mcp-devices/device-manager";
 import type { CompressOptions } from "mcp-devices/utils/image";
 import { BrowserClient } from "./browser/client.js";
 import { SessionManager } from "./browser/session-manager.js";
 import { compressScreenshot } from "mcp-devices/utils/image";
+import { PERFORMANCE } from "mcp-devices/constants/timeouts";
+import { randomUUID } from "crypto";
 import { rm } from "fs/promises";
 import type {
   BrowserOpenOptions,
@@ -21,6 +32,18 @@ import type {
 } from "./browser/types.js";
 import { DEFAULT_SESSION } from "./browser/types.js";
 import { BrowserNoSessionError, BrowserSessionNotFoundError } from "mcp-devices/errors";
+import {
+  startCdpPerformanceTrace,
+  stopCdpPerformanceTrace,
+} from "./browser/performance-trace.js";
+import { captureCdpHeapSnapshot } from "./browser/heap-snapshot.js";
+
+interface ActiveBrowserTrace {
+  handle: PerformanceTraceHandle;
+  sessionName: string;
+  timer?: ReturnType<typeof setTimeout>;
+  finishPromise?: Promise<PerformanceTraceCapture>;
+}
 
 const VIRTUAL_BROWSER_DEVICE: Device = {
   id: "browser",
@@ -30,13 +53,17 @@ const VIRTUAL_BROWSER_DEVICE: Device = {
   isSimulator: false,
 };
 
-export class BrowserAdapter implements CorePlatformAdapter {
+export class BrowserAdapter implements CorePlatformAdapter, PerformanceTraceAdapter, HeapSnapshotAdapter {
   readonly platform: Platform = "browser";
+  readonly heapSnapshotFormat = "chrome-heapsnapshot" as const;
 
   readonly sessionManager: SessionManager;
   readonly client: BrowserClient;
   private readonly sessionOperations = new Map<string, Promise<void>>();
   private disposed = false;
+  private readonly performanceTraces = new Map<string, ActiveBrowserTrace>();
+  private readonly traceBySession = new Map<string, string>();
+  private readonly heapCaptures = new Set<string>();
   private cleanupPromise?: Promise<void>;
 
   constructor(
@@ -146,6 +173,122 @@ export class BrowserAdapter implements CorePlatformAdapter {
     return JSON.stringify({ platform: "browser", activeSessions: sessions.length, sessions }, null, 2);
   }
 
+  // -- Performance traces --
+  async startPerformanceTrace(options: PerformanceTraceStartOptions): Promise<PerformanceTraceHandle> {
+    if (!Number.isInteger(options.durationMs) || options.durationMs < 1000 || options.durationMs > PERFORMANCE.MAX_TRACE_DURATION_MS) {
+      throw new Error(
+        `Browser trace duration must be an integer from 1000 to ${PERFORMANCE.MAX_TRACE_DURATION_MS}ms.`,
+      );
+    }
+    const sessionName = options.session ?? DEFAULT_SESSION;
+    const session = this.getActiveSession(sessionName);
+    if (this.traceBySession.has(sessionName)) {
+      throw new Error(`Browser session "${sessionName}" already has an active performance trace.`);
+    }
+
+    await startCdpPerformanceTrace(session.cdp, options.preset);
+    const startedAtMs = Date.now();
+    const handle: PerformanceTraceHandle = {
+      traceId: randomUUID(),
+      platform: "browser",
+      preset: options.preset,
+      startedAt: new Date(startedAtMs).toISOString(),
+      deadlineAt: new Date(startedAtMs + options.durationMs).toISOString(),
+    };
+    const active: ActiveBrowserTrace = { handle, sessionName };
+    this.performanceTraces.set(handle.traceId, active);
+    this.traceBySession.set(sessionName, handle.traceId);
+    active.timer = setTimeout(() => {
+      const finish = this.finishBrowserTrace(active);
+      void finish.catch(() => {});
+    }, options.durationMs);
+    active.timer.unref();
+    return handle;
+  }
+
+  async stopPerformanceTrace(traceId: string): Promise<PerformanceTraceCapture> {
+    const active = this.performanceTraces.get(traceId);
+    if (!active) {
+      throw new Error(`Browser performance trace "${traceId}" is not active.`);
+    }
+    try {
+      return await this.finishBrowserTrace(active);
+    } finally {
+      this.forgetBrowserTrace(active);
+    }
+  }
+
+  private finishBrowserTrace(active: ActiveBrowserTrace): Promise<PerformanceTraceCapture> {
+    if (active.finishPromise) return active.finishPromise;
+    if (active.timer) clearTimeout(active.timer);
+    const session = this.sessionManager.getSession(active.sessionName);
+    if (!session) {
+      return Promise.reject(
+        new Error(`Browser session "${active.sessionName}" closed before its performance trace was finalized.`),
+      );
+    }
+    active.finishPromise = (async () => {
+      const { data, summary } = await stopCdpPerformanceTrace(session.cdp);
+      const endedAtMs = Date.now();
+      return {
+        ...active.handle,
+        endedAt: new Date(endedAtMs).toISOString(),
+        durationMs: Math.max(0, endedAtMs - Date.parse(active.handle.startedAt)),
+        format: "chrome-json",
+        mimeType: "application/json",
+        producer: "Chrome DevTools Protocol",
+        session: active.sessionName,
+        summary,
+        data,
+      };
+    })();
+    return active.finishPromise;
+  }
+
+  private forgetBrowserTrace(active: ActiveBrowserTrace): void {
+    if (active.timer) clearTimeout(active.timer);
+    this.performanceTraces.delete(active.handle.traceId);
+    if (this.traceBySession.get(active.sessionName) === active.handle.traceId) {
+      this.traceBySession.delete(active.sessionName);
+    }
+  }
+
+  private discardBrowserTrace(sessionName: string): void {
+    const traceId = this.traceBySession.get(sessionName);
+    if (!traceId) return;
+    const active = this.performanceTraces.get(traceId);
+    if (active) this.forgetBrowserTrace(active);
+  }
+
+  // -- Heap snapshots --
+  async captureHeapSnapshot(options: HeapSnapshotOptions): Promise<HeapSnapshotCapture> {
+    const sessionName = options.session ?? DEFAULT_SESSION;
+    return this.withSessionOperation(sessionName, async () => {
+      const session = this.getActiveSession(sessionName);
+      if (this.heapCaptures.has(sessionName)) {
+        throw new Error(`Browser session "${sessionName}" already has an active heap capture.`);
+      }
+      if (this.traceBySession.has(sessionName)) {
+        throw new Error(`Browser session "${sessionName}" is recording a performance trace. Stop it before capturing the heap.`);
+      }
+      this.heapCaptures.add(sessionName);
+      try {
+        const summary = await captureCdpHeapSnapshot(session.cdp, options.outputPath);
+        return {
+          platform: "browser",
+          capturedAt: new Date().toISOString(),
+          format: this.heapSnapshotFormat,
+          mimeType: "application/json",
+          producer: "Chrome DevTools Protocol HeapProfiler",
+          session: sessionName,
+          summary,
+        };
+      } finally {
+        this.heapCaptures.delete(sessionName);
+      }
+    });
+  }
+
   // -- Browser-specific public API (used by browser-tools.ts) --
 
   async open(options: BrowserOpenOptions): Promise<string> {
@@ -153,7 +296,10 @@ export class BrowserAdapter implements CorePlatformAdapter {
     return this.withSessionOperation(sessionName, async () => {
       if (this.disposed) throw new Error("Browser adapter is disposed");
       const existing = this.sessionManager.getSession(sessionName);
-      if (existing) await this.client.close(existing);
+      if (existing) {
+        this.discardBrowserTrace(sessionName);
+        await this.client.close(existing);
+      }
       const session = await this.client.launch(options);
       try {
         const snapshot = await this.client.getSnapshot(session);
@@ -171,6 +317,7 @@ export class BrowserAdapter implements CorePlatformAdapter {
         this.sessionManager.listSessions().map((name) =>
           this.withSessionOperation(name, async () => {
             const active = this.sessionManager.getSession(name);
+            this.discardBrowserTrace(name);
             if (active) await this.client.close(active);
           })
         ),
@@ -182,6 +329,7 @@ export class BrowserAdapter implements CorePlatformAdapter {
       if (!active) {
         throw new BrowserSessionNotFoundError(session, this.sessionManager.listSessions());
       }
+      this.discardBrowserTrace(session);
       await this.client.close(active);
     });
   }
@@ -265,6 +413,7 @@ export class BrowserAdapter implements CorePlatformAdapter {
   async clearSessionData(sessionName: string): Promise<void> {
     await this.withSessionOperation(sessionName, async () => {
       const session = this.sessionManager.getSession(sessionName);
+      this.discardBrowserTrace(sessionName);
       if (session) await this.client.close(session);
       const token = this.sessionManager.acquireLock(sessionName);
       try {

@@ -101,6 +101,37 @@ export interface CDPClientInterface {
   Network: {
     enable(): Promise<void>;
   };
+  Tracing: {
+    start(params: {
+      categories: string;
+      transferMode: "ReturnAsStream";
+    }): Promise<void>;
+    end(): Promise<void>;
+    tracingComplete(): Promise<{
+      dataLossOccurred?: boolean;
+      stream?: string;
+    }>;
+  };
+  IO: {
+    read(params: {
+      handle: string;
+      size?: number;
+    }): Promise<{
+      data: string;
+      eof?: boolean;
+      base64Encoded?: boolean;
+    }>;
+    close(params: { handle: string }): Promise<void>;
+  };
+  HeapProfiler: {
+    enable(): Promise<void>;
+    disable(): Promise<void>;
+    takeHeapSnapshot(params: {
+      reportProgress: boolean;
+      captureNumericValue?: boolean;
+      exposeInternals?: boolean;
+    }): Promise<void>;
+  };
   Accessibility: {
     getFullAXTree(): Promise<{ nodes: CDPAccessibilityNode[] }>;
   };
@@ -123,5 +154,7 @@ export interface CDPClientInterface {
     }): Promise<void>;
     insertText(params: { text: string }): Promise<void>;
   };
+  on(event: "HeapProfiler.addHeapSnapshotChunk", listener: (event: { chunk: string }) => void): void;
+  removeListener(event: "HeapProfiler.addHeapSnapshotChunk", listener: (event: { chunk: string }) => void): void;
   close(): Promise<void>;
 }

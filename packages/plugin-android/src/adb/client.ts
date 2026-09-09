@@ -1,10 +1,12 @@
 import { execFileSync } from "child_process";
+import { randomUUID } from "crypto";
 import { resolveAdbPath } from "./resolver.js";
 import { validatePackageName, validatePermission, validateDeviceId } from "mcp-devices/utils/sanitize";
 import {
   EXEC_TIMEOUT_MS,
   execAdb,
   execAdbAsync,
+  execAdbFileTransfer,
   execAdbRaw,
   execAdbRawAsync,
 } from "./exec.js";
@@ -23,6 +25,11 @@ import {
   splitActionAndUiXml,
 } from "./parsers.js";
 import { buildLogcatArgs, filterLogsByPackage, type LogcatOptions } from "./logcat.js";
+import {
+  buildPerfettoStartArgs,
+  perfettoRemotePath,
+} from "./perfetto.js";
+import type { PerformanceTracePreset } from "mcp-devices/adapters/platform-adapter";
 
 // Re-export helpers so existing imports of `src/adb/client.js` keep working.
 export { escapeAndroidInputText, splitArgs } from "./text-escape.js";
@@ -35,6 +42,7 @@ export {
   execAdbAsync,
   execAdbRaw,
   execAdbRawAsync,
+  execAdbFileTransfer,
 } from "./exec.js";
 
 export interface Device {
@@ -514,6 +522,72 @@ export class AdbClient {
   getNetworkStats(): string {
     const output = this.execArgs(["shell", "dumpsys", "netstats"]);
     return output.split("\n").slice(0, 100).join("\n");
+  }
+
+  async startPerfettoTrace(
+    traceId: string,
+    preset: PerformanceTracePreset,
+    durationMs: number,
+    packageName?: string,
+  ): Promise<void> {
+    if (packageName) {
+      validatePackageName(packageName);
+      await this.execArgsAsync(["shell", "dumpsys", "gfxinfo", packageName, "reset"]).catch(() => {});
+    }
+    await this.execArgsAsync(
+      buildPerfettoStartArgs(traceId, preset, durationMs, packageName),
+    );
+  }
+
+  async finishPerfettoTrace(
+    traceId: string,
+    packageName?: string,
+  ): Promise<{ data: Buffer; gfxOutput?: string }> {
+    const remotePath = perfettoRemotePath(traceId);
+    try {
+      const data = await execAdbRawAsync(["exec-out", "cat", remotePath], this.deviceId);
+      let gfxOutput: string | undefined;
+      if (packageName) {
+        validatePackageName(packageName);
+        gfxOutput = await this.execArgsAsync([
+          "shell",
+          "dumpsys",
+          "gfxinfo",
+          packageName,
+        ]).catch(() => undefined);
+      }
+      return { data, gfxOutput };
+    } finally {
+      await this.execArgsAsync(["shell", "rm", "-f", remotePath]).catch(() => {});
+    }
+  }
+
+  discardPerfettoTrace(traceId: string): void {
+    const remotePath = perfettoRemotePath(traceId);
+    try {
+      this.execArgs(["shell", "rm", "-f", remotePath]);
+    } catch {
+      // Best-effort teardown; the bounded Perfetto session stops by itself.
+    }
+  }
+
+  async captureHeapSnapshot(packageName: string, outputPath: string): Promise<string> {
+    validatePackageName(packageName);
+    const packageDetails = await this.execArgsAsync(["shell", "dumpsys", "package", packageName]);
+    if (!/\bDEBUGGABLE\b/.test(packageDetails)) {
+      throw new Error(
+        `Android package ${packageName} is not debuggable. HPROF capture requires android:debuggable=\"true\" or a debug build.`,
+      );
+    }
+
+    const remotePath = `/data/local/tmp/mcp-devices-${randomUUID()}.hprof`;
+    try {
+      await execAdbFileTransfer(["shell", "am", "dumpheap", packageName, remotePath], this.deviceId);
+      await execAdbFileTransfer(["pull", remotePath, outputPath], this.deviceId);
+      return await this.execArgsAsync(["shell", "dumpsys", "meminfo", packageName]).catch(() => "");
+    } finally {
+      await this.execArgsAsync(["shell", "rm", "-f", remotePath]).catch(() => {});
+    }
   }
 
   /**

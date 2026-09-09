@@ -155,6 +155,37 @@ export class IosClient {
     return this.deviceId;
   }
 
+  resolveSimulatorId(deviceIdOverride?: string): string {
+    const target = this.targetDeviceFor(deviceIdOverride);
+    if (target !== "booted") {
+      validateDeviceId(target);
+      if (!this.isSimulatorDevice(target)) {
+        throw new Error("xctrace performance capture currently supports iOS Simulator targets only.");
+      }
+      return target;
+    }
+    const booted = this.getBootedDevices().find((device) => device.isSimulator);
+    if (!booted) throw new Error("No booted iOS simulator found. Boot a simulator first.");
+    return booted.id;
+  }
+
+  getRunningAppPid(bundleId: string, deviceIdOverride?: string): number {
+    validateBundleId(bundleId);
+    const deviceId = this.resolveSimulatorId(deviceIdOverride);
+    const output = this.execArgs(["spawn", deviceId, "launchctl", "list"]);
+    const directLabel = bundleId;
+    const applicationPrefix = `UIKitApplication:${bundleId}[`;
+    for (const line of output.split(/\r?\n/)) {
+      const columns = line.trim().split(/\s+/);
+      if (columns.length < 3) continue;
+      const label = columns.slice(2).join(" ");
+      if (label !== directLabel && !label.startsWith(applicationPrefix)) continue;
+      const pid = Number(columns[0]);
+      if (Number.isInteger(pid) && pid > 0) return pid;
+    }
+    throw new Error(`iOS app ${bundleId} is not running on simulator ${deviceId}. Launch it before starting a trace.`);
+  }
+
   /**
    * Boot simulator
    */

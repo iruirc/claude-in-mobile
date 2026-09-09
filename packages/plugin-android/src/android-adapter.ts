@@ -15,19 +15,40 @@ import type {
   PermissionAdapter,
   ShellAdapter,
   SyncScreenshotAdapter,
+  PerformanceTraceAdapter,
+  PerformanceTraceCapture,
+  PerformanceTraceHandle,
+  PerformanceTraceStartOptions,
+  HeapSnapshotAdapter,
+  HeapSnapshotCapture,
+  HeapSnapshotOptions,
 } from "mcp-devices/adapters/platform-adapter";
 import type { Device } from "mcp-devices/device-manager";
 import { AdbClient } from "./adb/client.js";
 import { WebViewInspector } from "./adb/webview.js";
 import { MobileError } from "mcp-devices/errors";
 import { compressScreenshot, type CompressOptions } from "mcp-devices/utils/image";
+import { PERFORMANCE } from "mcp-devices/constants/timeouts";
+import { randomUUID } from "crypto";
+import { chmod, open, stat } from "fs/promises";
+import { summarizeAndroidTrace } from "./adb/perfetto.js";
+import { summarizeAndroidHeap } from "./adb/hprof.js";
+
+interface ActiveAndroidTrace {
+  handle: PerformanceTraceHandle;
+  client: AdbClient;
+  deviceKey: string;
+  packageName?: string;
+}
 
 export class AndroidAdapter
-  implements CorePlatformAdapter, AppManagementAdapter, PermissionAdapter, ShellAdapter, SyncScreenshotAdapter
+  implements CorePlatformAdapter, AppManagementAdapter, PermissionAdapter, ShellAdapter, SyncScreenshotAdapter, PerformanceTraceAdapter, HeapSnapshotAdapter
 {
   readonly platform = "android" as const;
+  readonly heapSnapshotFormat = "android-hprof" as const;
   private client: AdbClient;
   private _selectedDeviceId: string | undefined;
+  private readonly performanceTraces = new Map<string, ActiveAndroidTrace>();
 
   constructor(client?: AdbClient) {
     this.client = client ?? new AdbClient();
@@ -47,6 +68,10 @@ export class AndroidAdapter
   dispose(): void {
     this._webViewInspector?.cleanup();
     this._webViewInspector = undefined;
+    for (const trace of this.performanceTraces.values()) {
+      trace.client.discardPerfettoTrace(trace.handle.traceId);
+    }
+    this.performanceTraces.clear();
   }
 
 
@@ -229,6 +254,105 @@ export class AndroidAdapter
   clearLogs(deviceId?: string): string {
     this.clientFor(deviceId).clearLogs();
     return "Logcat buffer cleared";
+  }
+
+  // ============ Performance traces (Perfetto) ============
+
+  async startPerformanceTrace(options: PerformanceTraceStartOptions): Promise<PerformanceTraceHandle> {
+    if (!Number.isInteger(options.durationMs) || options.durationMs < 1000 || options.durationMs > PERFORMANCE.MAX_TRACE_DURATION_MS) {
+      throw new Error(
+        `Android trace duration must be an integer from 1000 to ${PERFORMANCE.MAX_TRACE_DURATION_MS}ms.`,
+      );
+    }
+    const deviceKey = options.deviceId ?? this._selectedDeviceId ?? "default";
+    if ([...this.performanceTraces.values()].some((trace) => trace.deviceKey === deviceKey)) {
+      throw new Error(`Android device "${deviceKey}" already has an active performance trace.`);
+    }
+
+    const client = this.clientFor(options.deviceId);
+    const traceId = randomUUID();
+    const durationMs = Math.ceil(options.durationMs / 1000) * 1000;
+    const startedAtMs = Date.now();
+    await client.startPerfettoTrace(traceId, options.preset, durationMs, options.packageName);
+    const handle: PerformanceTraceHandle = {
+      traceId,
+      platform: "android",
+      preset: options.preset,
+      startedAt: new Date(startedAtMs).toISOString(),
+      deadlineAt: new Date(startedAtMs + durationMs).toISOString(),
+    };
+    this.performanceTraces.set(traceId, {
+      handle,
+      client,
+      deviceKey,
+      packageName: options.packageName,
+    });
+    return handle;
+  }
+
+  async stopPerformanceTrace(traceId: string): Promise<PerformanceTraceCapture> {
+    const active = this.performanceTraces.get(traceId);
+    if (!active) {
+      throw new Error(`Android performance trace "${traceId}" is not active.`);
+    }
+    try {
+      const remainingMs = Date.parse(active.handle.deadlineAt) - Date.now();
+      if (remainingMs > 0) {
+        await new Promise((resolve) => setTimeout(resolve, remainingMs));
+      }
+      // Perfetto finalizes its output asynchronously after the configured window.
+      await new Promise((resolve) => setTimeout(resolve, 300));
+      const { data, gfxOutput } = await active.client.finishPerfettoTrace(
+        traceId,
+        active.packageName,
+      );
+      const endedAtMs = Date.now();
+      return {
+        ...active.handle,
+        endedAt: new Date(endedAtMs).toISOString(),
+        durationMs: Math.max(0, endedAtMs - Date.parse(active.handle.startedAt)),
+        format: "perfetto-proto",
+        mimeType: "application/vnd.google.perfetto.trace",
+        producer: "Android Perfetto",
+        packageName: active.packageName,
+        summary: summarizeAndroidTrace(gfxOutput),
+        data,
+      };
+    } finally {
+      this.performanceTraces.delete(traceId);
+    }
+  }
+
+  // ============ Heap snapshots (HPROF) ============
+
+  async captureHeapSnapshot(options: HeapSnapshotOptions): Promise<HeapSnapshotCapture> {
+    if (!options.packageName) {
+      throw new MobileError("packageName is required for Android HPROF capture.", "ANDROID_HPROF_PACKAGE_REQUIRED");
+    }
+    const client = this.clientFor(options.deviceId);
+    const meminfo = await client.captureHeapSnapshot(options.packageName, options.outputPath);
+    await chmod(options.outputPath, 0o600);
+    const details = await stat(options.outputPath);
+    const file = await open(options.outputPath, "r");
+    try {
+      const header = Buffer.alloc(20);
+      const { bytesRead } = await file.read(header, 0, header.length, 0);
+      if (!header.subarray(0, bytesRead).toString("ascii").startsWith("JAVA PROFILE 1.0.")) {
+        throw new MobileError("Android dumpheap returned an invalid HPROF artifact.", "ANDROID_HPROF_INVALID");
+      }
+    } finally {
+      await file.close();
+    }
+    return {
+      platform: "android",
+      capturedAt: new Date().toISOString(),
+      format: this.heapSnapshotFormat,
+      mimeType: "application/octet-stream",
+      producer: "Android Runtime am dumpheap",
+      packageName: options.packageName,
+      session: options.session,
+      summary: summarizeAndroidHeap(details.size, meminfo),
+    };
   }
 
   // ============ System info ============

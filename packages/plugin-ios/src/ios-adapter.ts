@@ -15,20 +15,38 @@ import type {
   PermissionAdapter,
   ShellAdapter,
   SyncScreenshotAdapter,
+  PerformanceTraceAdapter,
+  PerformanceTraceCapture,
+  PerformanceTraceHandle,
+  PerformanceTraceStartOptions,
+  HeapSnapshotAdapter,
+  HeapSnapshotCapture,
+  HeapSnapshotOptions,
 } from "mcp-devices/adapters/platform-adapter";
 import type { Device } from "mcp-devices/device-manager";
 import { IosClient } from "./ios/client.js";
 import { MobileError } from "mcp-devices/errors";
 import { compressScreenshot, type CompressOptions } from "mcp-devices/utils/image";
+import { PERFORMANCE } from "mcp-devices/constants/timeouts";
+import { XctraceRecording, type XctraceStartOptions } from "./ios/xctrace.js";
+import { captureIosHeapSnapshot } from "./ios/heap-snapshot.js";
 
+
+interface ActiveIosTrace {
+  recording: XctraceRecording;
+  options: XctraceStartOptions;
+}
 export class IosAdapter
-  implements CorePlatformAdapter, AppManagementAdapter, PermissionAdapter, ShellAdapter, SyncScreenshotAdapter
+  implements CorePlatformAdapter, AppManagementAdapter, PermissionAdapter, ShellAdapter, SyncScreenshotAdapter, PerformanceTraceAdapter, HeapSnapshotAdapter
 {
   readonly platform = "ios" as const;
+  readonly heapSnapshotFormat = "xctrace-allocations" as const;
   private client: IosClient;
   private _selectedDeviceId: string | undefined;
   private readonly scopedClients = new Map<string, IosClient>();
   private disposePromise?: Promise<void>;
+  private readonly performanceTraces = new Map<string, ActiveIosTrace>();
+  private readonly heapCaptureDevices = new Set<string>();
 
   constructor(client?: IosClient) {
     this.client = client ?? new IosClient();
@@ -53,7 +71,11 @@ export class IosAdapter
 
   async dispose(): Promise<void> {
     if (!this.disposePromise) {
-      this.disposePromise = this.client.cleanup().finally(() => {
+      this.disposePromise = Promise.allSettled([
+        ...[...this.performanceTraces.values()].map(({ recording }) => recording.discard()),
+        this.client.cleanup(),
+      ]).then(() => {
+        this.performanceTraces.clear();
         this.scopedClients.clear();
       });
     }
@@ -214,6 +236,80 @@ export class IosAdapter
 
   clearLogs(): string {
     return this.client.clearLogs();
+  }
+
+  // ============ Performance tracing ============
+
+  async startPerformanceTrace(options: PerformanceTraceStartOptions): Promise<PerformanceTraceHandle> {
+    if (!options.bundleId) {
+      throw new MobileError("bundleId is required for iOS xctrace capture.", "IOS_XCTRACE_BUNDLE_REQUIRED");
+    }
+    if (!Number.isInteger(options.durationMs) || options.durationMs < 1_000 || options.durationMs > PERFORMANCE.MAX_TRACE_DURATION_MS) {
+      throw new MobileError(
+        `durationMs must be an integer between 1000 and ${PERFORMANCE.MAX_TRACE_DURATION_MS}.`,
+        "INVALID_TRACE_DURATION",
+      );
+    }
+    const client = this.clientFor(options.deviceId);
+    const deviceId = client.resolveSimulatorId(options.deviceId);
+    const pid = client.getRunningAppPid(options.bundleId, options.deviceId);
+    const xctraceOptions: XctraceStartOptions = {
+      deviceId,
+      bundleId: options.bundleId,
+      pid,
+      preset: options.preset,
+      durationMs: options.durationMs,
+      session: options.session,
+    };
+    const recording = await XctraceRecording.start(xctraceOptions);
+    this.performanceTraces.set(recording.handle.traceId, { recording, options: xctraceOptions });
+    return recording.handle;
+  }
+
+  async stopPerformanceTrace(traceId: string): Promise<PerformanceTraceCapture> {
+    const active = this.performanceTraces.get(traceId);
+    if (!active) {
+      throw new MobileError(`Active iOS xctrace capture "${traceId}" was not found.`, "PERF_TRACE_NOT_FOUND");
+    }
+    try {
+      const remainingMs = Math.max(0, Date.parse(active.recording.handle.deadlineAt) - Date.now());
+      if (remainingMs > 0) await new Promise((resolve) => setTimeout(resolve, remainingMs));
+      return await active.recording.finish(active.options);
+    } finally {
+      this.performanceTraces.delete(traceId);
+    }
+  }
+
+  // ============ Heap snapshots (Instruments Allocations) ============
+
+  async captureHeapSnapshot(options: HeapSnapshotOptions): Promise<HeapSnapshotCapture> {
+    if (!options.bundleId) {
+      throw new MobileError("bundleId is required for iOS Allocations capture.", "IOS_HEAP_BUNDLE_REQUIRED");
+    }
+    const client = this.clientFor(options.deviceId);
+    const deviceId = client.resolveSimulatorId(options.deviceId);
+    if (this.heapCaptureDevices.has(deviceId)) {
+      throw new MobileError(`iOS Simulator "${deviceId}" already has an active heap capture.`, "HEAP_CAPTURE_ACTIVE");
+    }
+    if ([...this.performanceTraces.values()].some(({ options: trace }) => trace.deviceId === deviceId)) {
+      throw new MobileError(
+        `iOS Simulator "${deviceId}" is recording a performance trace. Stop it before capturing allocations.`,
+        "HEAP_CAPTURE_ACTIVE",
+      );
+    }
+    const pid = client.getRunningAppPid(options.bundleId, options.deviceId);
+    this.heapCaptureDevices.add(deviceId);
+    try {
+      return await captureIosHeapSnapshot({
+        deviceId,
+        bundleId: options.bundleId,
+        pid,
+        outputPath: options.outputPath,
+        session: options.session,
+      });
+    } finally {
+      this.heapCaptureDevices.delete(deviceId);
+    }
   }
 
   // ============ System info ============
