@@ -16,7 +16,7 @@ import { IosAdapter } from "./ios-adapter.js";
 export const IOS_PLUGIN_MANIFEST: PluginManifest = {
   id: "ios",
   name: "iOS",
-  version: "4.2.1",
+  version: "4.2.2",
   apiVersion: "1",
   capabilities: [
     "screen",

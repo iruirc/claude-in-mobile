@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [4.2.2] — 2026-09-09
+
+### Fixed
+- **#70 — canonical Homebrew formula failed to load.**
+  Release automation now removes unsupported `oldname`/`oldnames` directives
+  while updating `mcp-devices.rb`. Cross-tap legacy installations require a
+  manual reinstall; the canonical formula continues to provide the
+  `claude-in-mobile` binary alias.
+
 ## [4.2.1] — 2026-09-09
 
 ### Fixed
