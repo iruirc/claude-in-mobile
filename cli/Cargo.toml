@@ -1,6 +1,6 @@
 [package]
 name = "mcp-devices"
-version = "4.2.2"
+version = "4.2.3"
 edition = "2021"
 description = "Fast native CLI for mobile device automation (Android/iOS/HarmonyOS/Aurora/Desktop)"
 authors = ["defendend", "Alex Gladkov"]

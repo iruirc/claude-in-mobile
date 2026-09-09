@@ -1182,7 +1182,7 @@ dependencies = [
 
 [[package]]
 name = "mcp-devices"
-version = "4.2.2"
+version = "4.2.3"
 dependencies = [
  "ab_glyph",
  "anyhow",

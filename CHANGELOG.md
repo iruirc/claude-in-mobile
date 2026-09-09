@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [4.2.3] — 2026-09-09
+
+### Fixed
+- **#60 — iOS UI trees were empty and screenshot-coordinate taps missed their targets.**
+  Root causes: WebDriverAgent's accessibility source omitted element geometry,
+  while screenshot pixel coordinates were sent unchanged to its point-based
+  input API. iOS now reads `/source?format=json` and keeps device-scoped
+  screenshot-to-point transforms across compressed and full-resolution
+  captures. Verified on an iPhone 17 Pro Simulator with a non-empty semantic
+  tree and a `442x960` screenshot mapped onto `1206x2622` device pixels and
+  `402x874` WDA points (#67, #68).
+- **WebDriverAgent startup and recovery could select stale artifacts, sessions,
+  or ports.** Builds now use one deterministic DerivedData directory and always
+  run incremental `build-for-testing`; session revalidation is serialized; and
+  port reservation probes the same IPv4 wildcard address WDA binds (#64, #65,
+  #66).
+
 ## [4.2.2] — 2026-09-09
 
 ### Fixed
