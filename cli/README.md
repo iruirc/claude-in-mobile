@@ -516,6 +516,39 @@ shasum -a 256 claude-in-mobile-VERSION-linux-x86_64.tar.gz
 
 ---
 
+## Native performance artifacts
+
+The native CLI captures bounded, local performance artifacts without Node.js:
+
+```bash
+# Android Perfetto and debuggable-app HPROF
+mcp-devices-cli perf-trace --platform android --package com.example.app \
+  --duration-ms 5000 --output ./app.perfetto-trace
+mcp-devices-cli perf-heap-capture --platform android --package com.example.app \
+  --output ./before.hprof
+
+# iOS Simulator Time Profiler and Instruments Allocations
+mcp-devices-cli perf-trace --platform ios --bundle-id com.example.app \
+  --simulator "iPhone 17 Pro" --output ./app.trace.zip
+mcp-devices-cli perf-heap-capture --platform ios --bundle-id com.example.app \
+  --output ./before.allocations.trace.zip
+
+# Coarse native artifact comparison
+mcp-devices-cli perf-heap-diff ./before.hprof ./after.hprof
+```
+
+`perf-trace` accepts the `ui-jank` and `startup` presets and a 1,000–15,000 ms
+duration. Simulator does not support xctrace's Animation Hitches instrument, so
+the iOS `ui-jank` preset records Time Profiler and reports that fallback.
+Artifacts are mode `0600`; traces are limited to 32 MiB and heap artifacts to
+128 MiB. Output paths are never overwritten. Native CLI artifacts are
+user-owned and have no automatic TTL; delete them when finished.
+
+Browser CDP tracing and HeapProfiler remain MCP-only because the Rust CLI does
+not host a browser session.
+
+---
+
 ## Supported Platforms
 
 | Platform | Backend | Device Selection |
@@ -527,7 +560,7 @@ shasum -a 256 claude-in-mobile-VERSION-linux-x86_64.tar.gz
 
 ---
 
-## Commands (38 total)
+## Commands
 
 Run `mcp-devices-cli --help` for the full list.
 
@@ -541,6 +574,7 @@ Run `mcp-devices-cli --help` for the full list.
 | Files | `push-file`, `pull-file` |
 | Clipboard | `get-clipboard`, `set-clipboard` |
 | System | `logs`, `clear-logs`, `system-info`, `devices`, `reboot`, `screen`, `screen-size` |
+| Performance | `perf-trace`, `perf-heap-capture`, `perf-heap-diff`, `perf-snapshot`, `perf-baseline`, `perf-compare`, `perf-monitor`, `perf-crashes`, `perf-framestats` |
 | Desktop | `launch-desktop-app`, `stop-desktop-app`, `get-window-info`, `focus-window`, `resize-window`, `get-monitors`, `get-performance-metrics` |
 | Other | `shell`, `open-url`, `wait`, `current-activity` |
 

@@ -112,6 +112,7 @@ mcp-devices doctor android
 | **sandbox** (Android only) | `prefs_read` (SharedPrefs), `prefs_write`, `sqlite_query`, `file_list`, `file_read` | App data access via run-as |
 | **sensor** (Android only) | `location` (GPS), `battery`, `notifications`, `thermal` | Environment simulation |
 | **network** (Android only) | `traffic` (stats), `connectivity`, `proxy`, `airplane` | Network control & monitoring |
+| **performance** | `snapshot`, `framestats`, `trace_*`, `heap_capture`, `heap_diff`, `heap_delete` | Metrics, Perfetto/Trace Processor analysis, and private HPROF workflows |
 
 Optional: `recorder`, `autopilot`, `performance`, `visual`, `accessibility`.
 
@@ -159,6 +160,16 @@ sensor(action: 'location', latitude: 37.7749, longitude: -122.4194)
 
 // Enable airplane mode
 network(action: 'airplane', enable: true)
+
+// Capture a 10-second Perfetto startup trace, then finalize it
+performance(action: 'trace_start', platform: 'android', packageName: 'com.example.myapp', preset: 'startup', duration: 10000)
+performance(action: 'trace_stop', traceId: '...')
+
+// Capture two debuggable-app HPROF files around a workload and compare metadata
+performance(action: 'heap_capture', platform: 'android', packageName: 'com.example.myapp')
+// Run the workload, then capture again:
+performance(action: 'heap_capture', platform: 'android', packageName: 'com.example.myapp')
+performance(action: 'heap_diff', beforeArtifactId: '...', afterArtifactId: '...')
 ```
 
 ---

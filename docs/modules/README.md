@@ -196,7 +196,7 @@ device(action: 'list_modules')
 - Navigate & evaluate JS; window/focus management; app store metadata; Android deep linking & broadcasts
 
 **Testing (visual, accessibility, performance, sandbox, sensor, network):**
-- Visual regression baselines & comparison; WCAG accessibility audit; memory/CPU snapshots, crash tracking, frame stats; app data access (SharedPrefs, SQLite, files); GPS, battery, notifications, thermal; traffic stats, connectivity, proxy, airplane mode
+- Visual regression baselines & comparison; WCAG accessibility audit; memory/CPU snapshots, crash tracking, frame stats, bounded Android Perfetto and Browser CDP traces; app data access (SharedPrefs, SQLite, files); GPS, battery, notifications, thermal; traffic stats, connectivity, proxy, airplane mode
 
 **Automation (recorder, sync, autopilot):**
 - Record & replay gesture sequences; multi-device broadcast; AI-driven test generation & self-healing

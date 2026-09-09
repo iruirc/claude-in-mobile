@@ -100,6 +100,7 @@ Web platform uses core modules + `browser` (web-specific):
 | **screen** | `capture`, `annotate` | Screenshots |
 | **device** | `list`, `set_target`, `enable_module` | Device/tab management |
 | **flow** | `batch`, `run`, `parallel` | Multi-step automation |
+| **performance** | `trace_*`, `heap_capture`, `heap_diff`, `heap_delete` | Bounded CDP traces and private Chrome heap snapshot comparisons |
 
 Optional: `recorder`, `performance`, `visual`, `accessibility`, `autopilot`.
 
@@ -133,6 +134,16 @@ input(action: 'text', text: 'user@example.com')
 
 // Take screenshot
 screen(action: 'capture', preset: 'low')
+
+// Trace UI work and persist native Chrome trace JSON
+performance(action: 'trace_start', platform: 'browser', session: 'default', preset: 'ui-jank', duration: 5000)
+// Run browser actions, then:
+performance(action: 'trace_stop', traceId: '...')
+
+// Compare Chrome heap metadata around a reproducible workload
+performance(action: 'heap_capture', platform: 'browser', session: 'default')
+// Run the workload, capture again, then:
+performance(action: 'heap_diff', beforeArtifactId: '...', afterArtifactId: '...')
 
 // Execute console command
 browser(action: 'console', command: 'window.localStorage.getItem("user")')

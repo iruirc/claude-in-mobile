@@ -487,3 +487,55 @@ mcp-devices-cli wait 500     # wait 500ms
 ```
 
 **Platforms:** cross-platform (no device interaction)
+
+---
+
+### perf-trace
+
+Capture a bounded native trace. Android writes a Perfetto protobuf; iOS
+Simulator writes a zipped Instruments Time Profiler trace.
+
+```bash
+mcp-devices-cli perf-trace --platform android --package com.example.app \
+  --duration-ms 5000 --output ./app.perfetto-trace --device emulator-5554
+mcp-devices-cli perf-trace --platform ios --bundle-id com.example.app \
+  --duration-ms 5000 --output ./app.trace.zip --simulator "iPhone 17 Pro"
+```
+
+`--preset` accepts `ui-jank` or `startup`. Duration must be 1,000–15,000 ms.
+iOS Simulator cannot record Animation Hitches, so `ui-jank` uses Time Profiler
+and reports the fallback.
+
+**Platforms:** Android, iOS Simulator
+
+---
+
+### perf-heap-capture
+
+Capture an HPROF from a debuggable Android app or a one-second Instruments
+Allocations bundle from a running iOS Simulator app.
+
+```bash
+mcp-devices-cli perf-heap-capture --platform android --package com.example.app \
+  --output ./before.hprof
+mcp-devices-cli perf-heap-capture --platform ios --bundle-id com.example.app \
+  --output ./before.allocations.trace.zip
+```
+
+Artifacts are private (`0600`), bounded, and never overwrite an existing path.
+The native CLI does not expire them automatically.
+
+**Platforms:** Android, iOS Simulator
+
+---
+
+### perf-heap-diff
+
+Compare two native heap artifacts by byte size. The signed delta is a
+diagnostic signal, not proof of a memory leak.
+
+```bash
+mcp-devices-cli perf-heap-diff ./before.hprof ./after.hprof
+```
+
+**Platforms:** local command; no device access

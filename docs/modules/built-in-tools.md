@@ -493,45 +493,97 @@ accessibility(action: 'rules')
 ---
 
 #### performance
-**Performance monitoring — snapshots, baselines, crashes, framestats**
+**Performance Lab — metrics, crash signals, frame statistics, native traces, and heap snapshots**
 
 | Action | Parameters | Purpose |
 |--------|-----------|---------|
-| `snapshot` | `metric` (memory, cpu, etc.) | Capture current performance metrics |
-| `baseline` | `name`, `metric` | Establish performance baseline |
-| `compare` | `baseline` | Compare current metrics vs baseline |
-| `monitor` | `duration`, `interval` | Monitor metrics over time |
-| `crashes` | — | List recent crashes |
-| `framestats` | — | Get frame rate statistics (Android) |
+| `snapshot` | `platform`, `packageName?`, `deviceId?` | Capture current memory, CPU, FPS, battery, and crash metrics |
+| `baseline` | `name`, `samples?`, `overwrite?`, target fields | Save an averaged metrics baseline |
+| `compare` | `name`, threshold fields, target fields | Compare current metrics with a baseline |
+| `monitor` | `duration?`, `interval?`, target fields | Sample metrics over a bounded interval |
+| `crashes` | target fields | Query recent crash and ANR signals |
+| `framestats` | `packageName?`, `deviceId?` | Measure Android frame timing and jank |
+| `trace_start` | `platform`, `duration?`, `preset?`, target fields | Start Android Perfetto, iOS xctrace, or browser CDP tracing |
+| `trace_stop` | `traceId` | Finalize the native trace and return its summary/artifact metadata |
+| `trace_status` | `traceId?` | List active traces and remaining capture time |
+| `trace_delete` | `artifactId` | Delete a captured trace and its metadata |
+| `heap_capture` | `platform`, target fields | Capture Android HPROF, iOS Allocations, or Chrome `.heapsnapshot` privately |
+| `heap_diff` | `beforeArtifactId`, `afterArtifactId` | Compare compatible heap size/count metadata |
+| `heap_delete` | `artifactId` | Delete a heap artifact and its metadata |
+
+Native tracing supports Android, iOS Simulator, and Browser. `preset` is
+`ui-jank` or `startup`; `duration` is 1,000–15,000 ms. Android records Perfetto
+plus `dumpsys gfxinfo`; when the official `trace_processor` executable is
+available, SQL analysis adds slice, scheduler, CPU-time, and jank counts. Set
+`PERFETTO_TRACE_PROCESSOR_PATH` for a non-PATH installation. iOS requires a
+running Simulator app and `bundleId`, and returns a zipped Instruments
+`.trace` bundle. Because Animation Hitches cannot record against Simulator
+runtimes, the `ui-jank` preset captures Time Profiler instead and returns an
+explicit warning; this avoids a valid-looking archive with zero instrument
+tables. Browser tracing reports long-task and rendering counts.
+
+Trace bytes never enter the MCP JSON response. Trace artifacts use mode
+`0600`, SHA-256 checksums, a 32 MiB per-artifact limit, a 256 MiB total limit,
+and a 24-hour TTL.
+
+Heap capture supports debuggable Android packages (ART HPROF), running iOS
+Simulator apps (a one-second Instruments Allocations bundle), and active
+browser sessions (CDP HeapProfiler). Raw heap/allocation bytes never enter MCP
+JSON. Heap artifacts are secret-bearing, mode `0600`, limited to 128 MiB each
+and 512 MiB total, and expire after 24 hours. `heap_diff` compares compatible
+metadata; positive growth is not by itself proof of a leak.
 
 **Examples:**
 
 ```json
-// Capture memory snapshot
-performance(action: 'snapshot', metric: 'memory')
-→ { rss: 250.5, heap: 180.3 }  // MB
+// Existing metric workflow
+performance(action: 'snapshot', platform: 'android', packageName: 'com.example.app')
+performance(action: 'baseline', name: 'checkout', platform: 'android')
+performance(action: 'compare', name: 'checkout', platform: 'android')
 
-// Capture CPU snapshot
-performance(action: 'snapshot', metric: 'cpu')
-→ { usage: 45.2 }  // percentage
+// Trace browser work, then open the returned Chrome JSON artifact offline
+performance(action: 'trace_start', platform: 'browser', session: 'checkout', preset: 'ui-jank', duration: 5000)
+→ { status: 'recording', traceId: '...' }
+performance(action: 'trace_stop', traceId: '...')
+→ {
+  status: 'captured',
+  format: 'chrome-json',
+  path: '/private/tmp/mcp-devices-performance-traces/....json',
+  summary: { eventCount: 1102, longTaskCount: 2, longestTaskMs: 182.7 }
+}
 
-// Set baseline
-performance(action: 'baseline', name: 'app-startup', metric: 'memory')
+// Trace an Android app. trace_stop waits for the configured Perfetto window.
+performance(action: 'trace_start', platform: 'android', packageName: 'com.example.app', preset: 'startup', duration: 10000)
+performance(action: 'trace_stop', traceId: '...')
+→ {
+  format: 'perfetto-proto',
+  summary: { frameStats: { totalFrames: 240, jankyFrames: 18, p99Ms: 60 } }
+}
 
-// Compare vs baseline
-performance(action: 'compare', baseline: 'app-startup')
-→ { current: 280.5, baseline: 250.5, delta: 30.0 }  // 30 MB increase
+// Trace a running iOS Simulator app and persist an Instruments bundle.
+performance(action: 'trace_start', platform: 'ios', bundleId: 'com.example.app', preset: 'startup', duration: 5000)
+performance(action: 'trace_stop', traceId: '...')
+→ { format: 'xctrace-zip', summary: { instrumentCount: 22, analysisTool: 'xctrace Time Profiler' } }
 
-// Check for crashes
-performance(action: 'crashes')
-→ { crashes: [{ timestamp: '2024-01-15T10:30:00Z', exception: 'NPE' }, ...] }
+// Compare two browser heaps around the same workload.
+performance(action: 'heap_capture', platform: 'browser', session: 'checkout')
+→ { artifactId: 'before-id', summary: { nodeCount: 29392, edgeCount: 121004 } }
+// Run the workload, then capture again.
+performance(action: 'heap_capture', platform: 'browser', session: 'checkout')
+→ { artifactId: 'after-id', summary: { nodeCount: 349192, edgeCount: 1121020 } }
+performance(action: 'heap_diff', beforeArtifactId: 'before-id', afterArtifactId: 'after-id')
+performance(action: 'heap_delete', artifactId: 'before-id')
+performance(action: 'heap_delete', artifactId: 'after-id')
 
-// Frame stats (Android)
-performance(action: 'framestats')
-→ { fps: 59.8, jank: 2 }  // frames per second, janky frames
+// Capture and compare Instruments Allocations bundles for one iOS Simulator app.
+performance(action: 'heap_capture', platform: 'ios', bundleId: 'com.example.app')
+→ { artifactId: 'ios-before', format: 'xctrace-allocations' }
+// Run the workload, capture again, then compare:
+performance(action: 'heap_capture', platform: 'ios', bundleId: 'com.example.app')
+performance(action: 'heap_diff', beforeArtifactId: 'ios-before', afterArtifactId: 'ios-after')
+
+performance(action: 'trace_delete', artifactId: '...')
 ```
-
----
 
 #### sandbox
 **App sandbox access — SharedPreferences, SQLite, file operations via run-as**

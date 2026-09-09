@@ -1,6 +1,6 @@
 ---
 name: mcp-devices
-description: "This skill should be used when the user asks to interact with device screens (screenshot, annotate, tap, swipe, type text), manage apps (install, launch, stop, uninstall), transfer files (push, pull), query device info (logs, system info, clipboard, screen size), run shell commands, manage desktop windows, or automate Android, iOS, HarmonyOS, Aurora OS, or Desktop apps."
+description: "This skill should be used when the user asks to interact with device screens (screenshot, annotate, tap, swipe, type text), manage apps (install, launch, stop, uninstall), transfer files (push, pull), query device info (logs, system info, clipboard, screen size), capture performance traces or heap artifacts, run shell commands, manage desktop windows, or automate Android, iOS, HarmonyOS, Aurora OS, or Desktop apps."
 ---
 
 # mcp-devices native CLI
@@ -41,7 +41,7 @@ Full command documentation split by scope:
 
 | Reference | Commands | Platforms |
 |-----------|----------|-----------|
-| [`references/core.md`](references/core.md) | screenshot, annotate, tap, swipe, input, key, ui-dump, apps, launch, stop, install, uninstall, logs, shell, and more | Cross-platform |
+| [`references/core.md`](references/core.md) | screenshot, gestures, apps, logs, shell, Perfetto/xctrace traces, Android/iOS heap artifacts, and more | Cross-platform |
 | [`references/android-only.md`](references/android-only.md) | analyze-screen, find-and-tap, screen on/off | Android |
 | [`references/desktop.md`](references/desktop.md) | get-window-info, focus-window, resize-window, launch/stop desktop apps, metrics, monitors | Desktop |
 | [`references/platform-support.md`](references/platform-support.md) | Per-platform support matrix and backend details | All |

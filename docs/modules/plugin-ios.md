@@ -106,6 +106,7 @@ iOS uses the same core modules as Android, plus optional testing modules:
 | **screen** | `capture`, `annotate` | Screenshots |
 | **device** | `list`, `set_target`, `enable_module` | Target/device management |
 | **flow** | `batch`, `run`, `parallel` | Multi-step automation |
+| **performance** | `trace_*`, `heap_capture`, `heap_diff`, `heap_delete` | Bounded Simulator xctrace and Instruments Allocations bundles |
 
 Optional: `recorder`, `autopilot`, `performance`, `visual`, `accessibility`.
 
@@ -141,6 +142,16 @@ screen(action: 'capture', preset: 'low')
 
 // Execute shell command on device
 system(action: 'shell', command: 'ls /tmp')
+
+// Trace a running Simulator app with Instruments
+performance(action: 'trace_start', platform: 'ios', bundleId: 'com.example.myapp', preset: 'ui-jank', duration: 5000)
+performance(action: 'trace_stop', traceId: '...')
+
+// Capture two native Allocations bundles around a workload
+performance(action: 'heap_capture', platform: 'ios', bundleId: 'com.example.myapp')
+// Run the workload, capture again, then:
+performance(action: 'heap_capture', platform: 'ios', bundleId: 'com.example.myapp')
+performance(action: 'heap_diff', beforeArtifactId: '...', afterArtifactId: '...')
 ```
 
 ---
