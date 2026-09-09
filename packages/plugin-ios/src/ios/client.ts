@@ -84,12 +84,13 @@ export class IosClient {
       );
     }
 
-    if (!this.wdaClient || !this.wdaManager.isClientActive(effectiveId, this.wdaClient)) {
-      this.wdaClient = await this.wdaManager.ensureWDAReady(
-        effectiveId,
-        this.isSimulatorDevice(effectiveId)
-      );
-    }
+    // isClientActive only proves the runner process is alive; WDA can still have
+    // dropped the session (single-session eviction, idle GC). ensureWDAReady
+    // revalidates it and recreates on 404, so a dead session self-heals.
+    this.wdaClient = await this.wdaManager.ensureWDAReady(
+      effectiveId,
+      this.isSimulatorDevice(effectiveId)
+    );
     return this.wdaClient;
   }
 
