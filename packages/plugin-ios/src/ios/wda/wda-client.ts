@@ -69,7 +69,7 @@ export class WDAClient {
     }
   }
 
-  async getAccessibleSource(): Promise<UITreeNode> {
+  async getSourceTree(): Promise<UITreeNode> {
     if (!this.sessionId) {
       throw new Error("No active WDA session");
     }
@@ -83,7 +83,7 @@ export class WDAClient {
     // Trust boundary: a degraded session returns 200 with {value:null}. Reject
     // it here instead of casting the envelope to a tree (which yields an empty
     // parse and poisons downstream caches). See WdaTreeError.
-    return unwrapWdaValue<UITreeNode>(response, "accessibleSource");
+    return unwrapWdaValue<UITreeNode>(response, "source");
   }
 
   async findElement(

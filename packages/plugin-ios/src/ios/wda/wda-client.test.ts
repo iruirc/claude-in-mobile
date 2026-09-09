@@ -55,11 +55,11 @@ describe("unwrapWdaValue — WDA envelope validation", () => {
 
   it("error message names the context and the degradation", () => {
     try {
-      unwrapWdaValue({ status: 0, value: null }, "accessibleSource");
+      unwrapWdaValue({ status: 0, value: null }, "source");
       expect.unreachable("should have thrown");
     } catch (err: any) {
       expect(err).toBeInstanceOf(WdaTreeError);
-      expect(err.message).toContain("accessibleSource");
+      expect(err.message).toContain("source");
       expect(err.message).toContain("WebDriverAgent session");
     }
   });
@@ -82,23 +82,23 @@ describe("WDAClient — degraded envelope must throw, not leak the wrapper", () 
     vi.restoreAllMocks();
   });
 
-  it("getAccessibleSource throws WdaTreeError on {value:null}", async () => {
+  it("getSourceTree throws WdaTreeError on {value:null}", async () => {
     fetchMock.mockResolvedValueOnce(
       jsonResponse({ status: 0, value: null, sessionId: "TEST" }),
     );
-    await expect(client.getAccessibleSource()).rejects.toBeInstanceOf(
+    await expect(client.getSourceTree()).rejects.toBeInstanceOf(
       WdaTreeError,
     );
   });
 
-  it("getAccessibleSource returns the tree on a healthy envelope", async () => {
+  it("getSourceTree returns the tree on a healthy envelope", async () => {
     const tree = {
       type: "XCUIElementTypeApplication",
       rect: { x: 0, y: 0, width: 390, height: 844 },
       children: [],
     };
     fetchMock.mockResolvedValueOnce(jsonResponse({ status: 0, value: tree }));
-    await expect(client.getAccessibleSource()).resolves.toEqual(tree);
+    await expect(client.getSourceTree()).resolves.toEqual(tree);
   });
 
   it("findElement throws WdaTreeError on {value:null} instead of returning the envelope", async () => {
@@ -167,7 +167,7 @@ describe("WDAClient — the UI tree must carry element geometry", () => {
           }),
     ));
 
-    const tree = await client.getAccessibleSource();
+    const tree = await client.getSourceTree();
 
     expect((tree as { rect?: unknown }).rect).toBeDefined();
   });
