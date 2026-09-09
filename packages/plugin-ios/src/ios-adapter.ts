@@ -180,6 +180,10 @@ export class IosAdapter
 
   // ============ UI ============
 
+  getScreenPointSize(deviceId?: string): Promise<{ width: number; height: number }> {
+    return this.clientFor(deviceId).getScreenPointSize(deviceId);
+  }
+
   async getUiHierarchy(deviceId?: string): Promise<string> {
     return this.clientFor(deviceId).getUiHierarchy(deviceId);
   }
