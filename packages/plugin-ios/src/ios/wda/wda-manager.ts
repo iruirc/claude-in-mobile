@@ -385,7 +385,10 @@ export class WDAManager {
           RESERVED_PORTS.add(port);
           server.close(() => resolve(true));
         });
-        server.listen(port, "127.0.0.1");
+        // Probe the wildcard address: WebDriverAgent binds 0.0.0.0, and a probe
+        // pinned to 127.0.0.1 does not collide with it, so a port another
+        // process already serves would be reported free.
+        server.listen(port);
       });
       if (available) return port;
     }
