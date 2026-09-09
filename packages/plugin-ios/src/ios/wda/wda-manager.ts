@@ -4,7 +4,11 @@ import * as path from "path";
 import * as os from "os";
 import { createServer } from "net";
 import { WDAClient } from "./wda-client.js";
+import { findRunnerApp, pickBuildSimulator } from "./wda-build.js";
+import { execSimctl } from "../simctl-exec.js";
+import { parseDevicesJson } from "../simctl-parsers.js";
 import type { WDAInstanceInfo } from "./wda-types.js";
+import type { IosDevice } from "../types.js";
 
 const DEVICE_WDA_PORT = 8100;
 const GO_IOS_BIN = process.env.GO_IOS_BIN ?? "ios";
@@ -29,6 +33,7 @@ export class WDAManager {
   private readonly startupTimeout = 30_000;
   private readonly deviceStartupTimeout = 300_000;
   private readonly buildTimeout = 120_000;
+  private readonly derivedDataRoot = path.join(os.homedir(), "Library/Developer/Xcode/DerivedData");
   private disposed = false;
   private cleanupPromise?: Promise<void>;
 
@@ -150,14 +155,28 @@ export class WDAManager {
     );
   }
 
+  private resolveSimulatorDestination(devices: IosDevice[]): string {
+    const device = pickBuildSimulator(devices);
+    if (!device) {
+      throw new Error(
+        "No iOS simulator available to build WebDriverAgent against. "
+        + "Create one in Xcode (Window > Devices and Simulators).",
+      );
+    }
+    return `platform=iOS Simulator,id=${device.id}`;
+  }
+
   private async buildWDAIfNeeded(wdaPath: string): Promise<void> {
-    if (fs.existsSync(path.join(wdaPath, "build"))) return;
+    if (findRunnerApp(this.derivedDataRoot)) return;
+    const devices = parseDevicesJson(execSimctl(["list", "devices", "-j"]));
+    const destination = this.resolveSimulatorDestination(devices);
     console.error("Building WebDriverAgent for first use...");
     try {
       execSync(
         "xcodebuild build-for-testing -project WebDriverAgent.xcodeproj " +
-        "-scheme WebDriverAgentRunner -destination 'platform=iOS Simulator,name=iPhone 14'",
-        { cwd: wdaPath, timeout: this.buildTimeout, stdio: "pipe" },
+        `-scheme WebDriverAgentRunner -destination '${destination}' `
+        + "CODE_SIGNING_ALLOWED=NO",
+        { cwd: wdaPath, timeout: this.buildTimeout, stdio: "pipe", maxBuffer: 50 * 1024 * 1024 },
       );
     } catch (error) {
       const details = error as { stderr?: Buffer | string; stdout?: Buffer | string; message?: string };
