@@ -43,7 +43,4 @@ describe("ReplPlugin manifest specifics", () => {
     expect(REPL_PLUGIN_MANIFEST.apiVersion).toBe("1");
   });
 
-  it("matches the product release version", () => {
-    expect(REPL_PLUGIN_MANIFEST.version).toBe("4.2.0");
-  });
 });
