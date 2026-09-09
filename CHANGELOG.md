@@ -7,9 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [4.2.0] — 2026-09-07
+## [4.2.0] — 2026-09-09
 
 ### Added
+- **Performance Lab.** MCP performance actions now capture bounded Android
+  Perfetto, iOS Instruments, and browser CDP traces plus private Android HPROF,
+  iOS Allocations, and Chrome HeapProfiler artifacts with metadata-only diffs.
+- **Native performance CLI.** `perf-trace`, `perf-heap-capture`, and
+  `perf-heap-diff` provide direct Android/iOS artifact workflows without
+  hosting the Node MCP server.
 - **HarmonyOS Next platform plugin.** New
   `@mcp-devices/plugin-harmony` uses HDC and ArkXTest for device discovery,
   screenshots and annotations, UI hierarchy, element targeting and waits,
@@ -38,6 +44,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   file transfer. Ability launches accept optional `--ability` and `--module`.
 
 ### Fixed
+- iOS Simulator `ui-jank` tracing now records Time Profiler with an explicit
+  fallback warning instead of returning an Animation Hitches archive with zero
+  instrument tables.
 - Restored `wait_log`, `pid_of`, and `is_running` to the primary `system`
   meta-tool and standalone alias map; their handlers existed but were
   unreachable from the normal MCP surface.
