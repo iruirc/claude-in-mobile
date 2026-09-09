@@ -253,8 +253,11 @@ CI его исключает.)
 - [ ] **Homebrew (unified tap `AlexGladkov/homebrew-tap`):**
   `brew update && brew upgrade alexgladkov/tap/mcp-devices` —
   переходит на новую версию. `mcp-devices --version` → `X.Y.Z`.
-  Первая установка: `brew install alexgladkov/tap/mcp-devices`
-  (старый `claude-in-mobile` мигрирует через `oldname`).
+  Первая установка: `brew install alexgladkov/tap/mcp-devices`.
+  Старые установки из `AlexGladkov/homebrew-claude-in-mobile` не мигрируют
+  автоматически: `oldname` не является Formula DSL, а cross-tap rename не
+  поддерживается через `formula_renames.json`. Переустановить из unified tap;
+  каноническая формула сохраняет бинарный alias `claude-in-mobile`.
   Формула лежит в КОРНЕ tap (`mcp-devices.rb`), не в `Formula/`.
   Если brew просит trust — `brew trust alexgladkov/tap`.
   Если `--version` показывает старую версию при обновлённом Cellar —

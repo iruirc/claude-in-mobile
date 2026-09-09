@@ -380,15 +380,18 @@ jobs:
 
           version = os.environ["VERSION"]
           sha_map = json.loads(os.environ["SHA_MAP"])
-          # Formula path differs per tap: unified tap keeps it at the repo root,
-          # the legacy tap under Formula/. The file is seeded out-of-band; this
-          # job patches version + shas in place.
+          # The canonical unified tap keeps the formula at the repo root. The
+          # file is seeded out-of-band; this job patches version + shas in place.
           path = os.environ["FORMULA"]
 
           with open(path) as f:
               content = f.read()
 
           content = re.sub(r'version ".*?"', f'version "{version}"', content)
+          # `oldname`/`oldnames` are not supported Formula DSL. Same-tap renames
+          # use formula_renames.json; this product moved across taps, so retain
+          # command aliases but strip the invalid migration directive.
+          content = re.sub(r'^\s*oldnames?\s+.*\n?', '', content, flags=re.MULTILINE)
 
           # Replace shas in the order they appear in the Formula. The Formula
           # template's order must match the (deterministic) platform order

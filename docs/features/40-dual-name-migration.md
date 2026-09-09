@@ -25,51 +25,32 @@ maintained compatibility alias.
   (idempotent dist-tag move if already there). So `npm i -g claude-in-mobile@latest`
   always resolves the matching `mcp-devices` engine.
 
-### Remaining (part 2b — Homebrew, apply AT 4.0 release time)
+### Homebrew migration outcome
 
-Must NOT be applied before 4.0 ships — it would break current 3.15.0 brew users
-whose tap formula still serves the 3.x `claude-in-mobile`.
+The canonical formula lives at the root of `AlexGladkov/homebrew-tap` as
+`mcp-devices.rb`. Release automation updates only this unified tap.
 
-Tap repo `AlexGladkov/homebrew-claude-in-mobile`, at 4.0 release:
+The formula installs the `mcp-devices` binary and keeps both command aliases:
 
-1. Add `Formula/mcp-devices.rb` (canonical), e.g.:
-   ```ruby
-   class McpDevices < Formula
-     desc "..."
-     homepage "https://github.com/AlexGladkov/claude-in-mobile"
-     version "4.0.0"
-     # keep old-name users auto-migrating on `brew upgrade`
-     oldname "claude-in-mobile"   # (or: oldnames ["claude-in-mobile"])
-     on_macos do
-       on_arm do
-         url ".../claude-in-mobile-#{version}-darwin-arm64.tar.gz"   # asset name unchanged
-         sha256 "..."
-       end
-       on_intel do
-         url ".../claude-in-mobile-#{version}-darwin-x86_64.tar.gz"
-         sha256 "..."
-       end
-     end
-     def install
-       bin.install "mcp-devices"
-       bin.install_symlink bin/"mcp-devices" => "claude-in-mobile"  # both commands
-     end
-     test do
-       system bin/"mcp-devices", "--version"
-     end
-   end
-   ```
-   The tarball ASSET name stays `claude-in-mobile-<v>-<platform>.tar.gz` (the
-   binary inside is `mcp-devices`) — deliberately not renamed, to avoid churning
-   the asset/URL/verify-checksums chain. Revisit only if a clean asset rename is
-   wanted later.
-2. Update `release.yml` `update-homebrew` + `verify-checksums` to target
-   `Formula/mcp-devices.rb` (currently `Formula/claude-in-mobile.rb`), and make
-   the Python patcher bump that file. Keep (or oldname-redirect) the legacy
-   `claude-in-mobile.rb` so `brew install claude-in-mobile` still resolves during
-   the transition.
-3. Result: `brew install mcp-devices` (new) and `brew upgrade claude-in-mobile`
-   (old → auto-migrated via `oldname`) both work; both commands are on PATH.
+```ruby
+def install
+  bin.install "mcp-devices"
+  bin.install_symlink bin/"mcp-devices" => "mcp-devices-cli"
+  bin.install_symlink bin/"mcp-devices" => "claude-in-mobile"
+end
+```
+
+Do not put `oldname` or `oldnames` in a Formula class. They are not supported
+Formula DSL and make Homebrew reject the formula before installation. A
+same-tap rename belongs in `formula_renames.json`; this project moved between
+two external taps, so existing installations from
+`AlexGladkov/homebrew-claude-in-mobile` must be reinstalled from
+`AlexGladkov/homebrew-tap` manually.
+
+The tarball asset name remains
+`claude-in-mobile-<version>-<platform>.tar.gz`; the archive contains both
+`mcp-devices` and `mcp-devices-cli`. This avoids churn in release URLs and
+checksum verification.
 
 ## Net user experience after 4.0
 
@@ -77,7 +58,7 @@ Tap repo `AlexGladkov/homebrew-claude-in-mobile`, at 4.0 release:
 |---------|--------------------------|----------------|
 | npm `claude-in-mobile` | yes (shim + bin alias) | yes (shim dep synced each release) |
 | npm `mcp-devices` | n/a (new canon) | yes |
-| brew `claude-in-mobile` | yes (oldname migrate) | yes (`brew upgrade`) |
+| brew `claude-in-mobile` | yes (binary alias in canonical formula) | reinstall from unified tap |
 | brew `mcp-devices` | n/a (new canon) | yes |
 | CLI command | both `mcp-devices` and `claude-in-mobile` available | — |
 
