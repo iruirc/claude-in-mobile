@@ -356,7 +356,7 @@ export class IosClient {
   async getUiHierarchy(deviceIdOverride?: string): Promise<string> {
     try {
       const wdaClient = await this.ensureWDA(deviceIdOverride);
-      const tree = await wdaClient.getAccessibleSource();
+      const tree = await wdaClient.getSourceTree();
       return JSON.stringify(tree, null, 2);
     } catch (error: unknown) {
       throw wdaRequiredError("WebDriverAgent", error);

@@ -55,11 +55,11 @@ describe("unwrapWdaValue — WDA envelope validation", () => {
 
   it("error message names the context and the degradation", () => {
     try {
-      unwrapWdaValue({ status: 0, value: null }, "accessibleSource");
+      unwrapWdaValue({ status: 0, value: null }, "source");
       expect.unreachable("should have thrown");
     } catch (err: any) {
       expect(err).toBeInstanceOf(WdaTreeError);
-      expect(err.message).toContain("accessibleSource");
+      expect(err.message).toContain("source");
       expect(err.message).toContain("WebDriverAgent session");
     }
   });
@@ -82,23 +82,23 @@ describe("WDAClient — degraded envelope must throw, not leak the wrapper", () 
     vi.restoreAllMocks();
   });
 
-  it("getAccessibleSource throws WdaTreeError on {value:null}", async () => {
+  it("getSourceTree throws WdaTreeError on {value:null}", async () => {
     fetchMock.mockResolvedValueOnce(
       jsonResponse({ status: 0, value: null, sessionId: "TEST" }),
     );
-    await expect(client.getAccessibleSource()).rejects.toBeInstanceOf(
+    await expect(client.getSourceTree()).rejects.toBeInstanceOf(
       WdaTreeError,
     );
   });
 
-  it("getAccessibleSource returns the tree on a healthy envelope", async () => {
+  it("getSourceTree returns the tree on a healthy envelope", async () => {
     const tree = {
       type: "XCUIElementTypeApplication",
       rect: { x: 0, y: 0, width: 390, height: 844 },
       children: [],
     };
     fetchMock.mockResolvedValueOnce(jsonResponse({ status: 0, value: tree }));
-    await expect(client.getAccessibleSource()).resolves.toEqual(tree);
+    await expect(client.getSourceTree()).resolves.toEqual(tree);
   });
 
   it("findElement throws WdaTreeError on {value:null} instead of returning the envelope", async () => {
@@ -136,5 +136,39 @@ describe("WDAClient — degraded envelope must throw, not leak the wrapper", () 
     await expect(client.getElementRect("42")).rejects.toBeInstanceOf(
       WdaTreeError,
     );
+  });
+});
+
+/**
+ * The UI tree is only useful if it carries geometry: every downstream consumer
+ * (iosTreeToUiElements -> ui(tree), hints, flow) drops nodes without a rect.
+ * Real WDA answers /wda/accessibleSource without rects at all, and
+ * /source?format=json with them.
+ */
+describe("WDAClient — the UI tree must carry element geometry", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+  });
+
+  it("reads a source that carries rects, not the geometry-free accessibility tree", async () => {
+    const client = new WDAClient(8100);
+    (client as unknown as { sessionId: string | null }).sessionId = "TEST";
+    vi.stubGlobal("fetch", vi.fn(async (url: unknown) =>
+      String(url).includes("/wda/accessibleSource")
+        ? jsonResponse({ status: 0, value: { type: "XCUIElementTypeApplication", name: "App", children: [] } })
+        : jsonResponse({
+            status: 0,
+            value: {
+              type: "XCUIElementTypeApplication",
+              rect: { x: 0, y: 0, width: 390, height: 844 },
+              children: [],
+            },
+          }),
+    ));
+
+    const tree = await client.getSourceTree();
+
+    expect((tree as { rect?: unknown }).rect).toBeDefined();
   });
 });
