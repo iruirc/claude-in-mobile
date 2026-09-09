@@ -113,6 +113,114 @@ export interface UrlOpeningAdapter {
 export interface SyncScreenshotAdapter {
   screenshotRaw(): string;
 }
+// ============ Performance trace capability ============
+
+export type PerformanceTracePreset = "ui-jank" | "startup";
+export type PerformanceTraceFormat = "chrome-json" | "perfetto-proto" | "xctrace-zip";
+
+export interface PerformanceTraceStartOptions {
+  preset: PerformanceTracePreset;
+  durationMs: number;
+  packageName?: string;
+  bundleId?: string;
+  session?: string;
+  deviceId?: string;
+}
+
+export interface PerformanceTraceHandle {
+  traceId: string;
+  platform: Platform;
+  preset: PerformanceTracePreset;
+  startedAt: string;
+  deadlineAt: string;
+}
+
+export interface PerformanceTraceFrameStats {
+  totalFrames: number;
+  jankyFrames: number;
+  jankyPercent: number;
+  p50Ms?: number;
+  p90Ms?: number;
+  p95Ms?: number;
+  p99Ms?: number;
+}
+
+export interface PerformanceTraceSummary {
+  eventCount?: number;
+  longTaskCount?: number;
+  longestTaskMs?: number;
+  totalLongTaskMs?: number;
+  layoutCount?: number;
+  paintCount?: number;
+  scriptCount?: number;
+  navigationCount?: number;
+  frameStats?: PerformanceTraceFrameStats;
+  sliceCount?: number;
+  schedSliceCount?: number;
+  cpuTimeMs?: number;
+  jankSliceCount?: number;
+  sampleCount?: number;
+  instrumentCount?: number;
+  analysisTool?: string;
+  warnings: string[];
+}
+
+export interface PerformanceTraceCapture extends PerformanceTraceHandle {
+  endedAt: string;
+  durationMs: number;
+  format: PerformanceTraceFormat;
+  mimeType: string;
+  producer: string;
+  packageName?: string;
+  session?: string;
+  summary: PerformanceTraceSummary;
+  data: Uint8Array;
+}
+
+export interface PerformanceTraceAdapter {
+  startPerformanceTrace(options: PerformanceTraceStartOptions): Promise<PerformanceTraceHandle>;
+  stopPerformanceTrace(traceId: string): Promise<PerformanceTraceCapture>;
+}
+
+export type HeapSnapshotFormat = "android-hprof" | "chrome-heapsnapshot" | "xctrace-allocations";
+
+export interface HeapSnapshotOptions {
+  outputPath: string;
+  packageName?: string;
+  bundleId?: string;
+  session?: string;
+  deviceId?: string;
+}
+
+export interface HeapSnapshotSummary {
+  sizeBytes: number;
+  nodeCount?: number;
+  edgeCount?: number;
+  traceFunctionCount?: number;
+  totalPssMb?: number;
+  nativeHeapMb?: number;
+  dalvikHeapMb?: number;
+  instrumentCount?: number;
+  warnings: string[];
+}
+
+export interface HeapSnapshotCapture {
+  platform: Platform;
+  capturedAt: string;
+  format: HeapSnapshotFormat;
+  mimeType: string;
+  producer: string;
+  packageName?: string;
+  session?: string;
+  summary: HeapSnapshotSummary;
+}
+
+export interface HeapSnapshotAdapter {
+  readonly heapSnapshotFormat: HeapSnapshotFormat;
+  captureHeapSnapshot(options: HeapSnapshotOptions): Promise<HeapSnapshotCapture>;
+}
+
+
 
 // ============ Type guards ============
 
@@ -155,6 +263,21 @@ export function hasUrlOpening(adapter: CorePlatformAdapter): adapter is CorePlat
 export function hasSyncScreenshot(adapter: CorePlatformAdapter): adapter is CorePlatformAdapter & SyncScreenshotAdapter {
   return "screenshotRaw" in adapter;
 }
+
+export function hasPerformanceTrace(adapter: CorePlatformAdapter): adapter is CorePlatformAdapter & PerformanceTraceAdapter {
+  return (
+    "startPerformanceTrace" in adapter &&
+    "stopPerformanceTrace" in adapter
+  );
+}
+
+export function hasHeapSnapshot(adapter: CorePlatformAdapter): adapter is CorePlatformAdapter & HeapSnapshotAdapter {
+  return (
+    "heapSnapshotFormat" in adapter &&
+    "captureHeapSnapshot" in adapter
+  );
+}
+
 
 // ============ Capability requirement helpers ============
 
@@ -215,6 +338,24 @@ export function requireUrlOpening(
 ): CorePlatformAdapter & UrlOpeningAdapter {
   if (!hasUrlOpening(adapter)) {
     throw new CapabilityNotSupportedError(adapter.platform, "UrlOpening");
+  }
+  return adapter;
+}
+
+export function requirePerformanceTrace(
+  adapter: CorePlatformAdapter,
+): CorePlatformAdapter & PerformanceTraceAdapter {
+  if (!hasPerformanceTrace(adapter)) {
+    throw new CapabilityNotSupportedError(adapter.platform, "PerformanceTrace");
+  }
+  return adapter;
+}
+
+export function requireHeapSnapshot(
+  adapter: CorePlatformAdapter,
+): CorePlatformAdapter & HeapSnapshotAdapter {
+  if (!hasHeapSnapshot(adapter)) {
+    throw new CapabilityNotSupportedError(adapter.platform, "HeapSnapshot");
   }
   return adapter;
 }

@@ -2,6 +2,15 @@
  * Performance & Crash Monitor types.
  */
 
+import type {
+  PerformanceTraceFormat,
+  PerformanceTraceHandle,
+  PerformanceTraceSummary,
+  HeapSnapshotFormat,
+  HeapSnapshotSummary,
+} from "../adapters/platform-adapter.js";
+
+
 export interface PerfSnapshot {
   platform: string;
   timestamp: string;
@@ -49,4 +58,61 @@ export interface PerfMonitorResult {
   cpu: { min: number; max: number; avg: number } | null;
   fps: { min: number; max: number; avg: number } | null;
   warnings: string[];
+}
+
+export interface PerformanceTraceArtifact extends PerformanceTraceHandle {
+  artifactId: string;
+  endedAt: string;
+  durationMs: number;
+  format: PerformanceTraceFormat;
+  mimeType: string;
+  producer: string;
+  packageName?: string;
+  session?: string;
+  summary: PerformanceTraceSummary;
+  path: string;
+  sizeBytes: number;
+  sha256: string;
+  createdAt: string;
+  expiresAt: string;
+  sensitivity: "sensitive";
+}
+
+export interface PerformanceTraceStatus extends PerformanceTraceHandle {
+  state: "recording" | "ready";
+  remainingMs: number;
+}
+
+export interface HeapSnapshotArtifact {
+  artifactId: string;
+  platform: string;
+  capturedAt: string;
+  format: HeapSnapshotFormat;
+  mimeType: string;
+  producer: string;
+  packageName?: string;
+  session?: string;
+  summary: HeapSnapshotSummary;
+  path: string;
+  sizeBytes: number;
+  sha256: string;
+  createdAt: string;
+  expiresAt: string;
+  sensitivity: "secret";
+}
+
+export interface HeapSnapshotDiffMetric {
+  metric: string;
+  before: number;
+  after: number;
+  delta: number;
+  deltaPercent: number | null;
+  unit: "bytes" | "count" | "mb";
+}
+
+export interface HeapSnapshotDiff {
+  platform: string;
+  beforeArtifactId: string;
+  afterArtifactId: string;
+  metrics: HeapSnapshotDiffMetric[];
 }

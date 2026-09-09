@@ -4,14 +4,14 @@ import { performanceTools } from "../performance-tools.js";
 const { meta, aliases } = createMetaTool({
   name: "performance",
   description:
-    "Performance & Crash Monitor. snapshot: collect current metrics. baseline: save metrics for comparison. compare: PASS/FAIL against baseline. monitor: continuous sampling over duration. crashes: query crash/ANR logs. framestats: GPU frame rendering statistics with jank rate and percentiles (Android only).",
+    "Performance Lab. Metrics, baselines, monitoring, crashes, Android framestats, bounded native Perfetto/xctrace/CDP traces, and private Android HPROF, iOS Allocations, or Chrome heap artifacts with metadata-only diffs.",
   tools: performanceTools,
   prefix: "performance_",
   extraSchema: {
     platform: {
       type: "string",
-      enum: ["android", "ios", "desktop"],
-      description: "Target platform. If not specified, uses the active target.",
+      enum: ["android", "ios", "desktop", "browser"],
+      description: "Target platform. Traces and heap capture support Android, iOS Simulator, and browser.",
     },
     packageName: {
       type: "string",
@@ -43,7 +43,7 @@ const { meta, aliases } = createMetaTool({
     },
     duration: {
       type: "number",
-      description: "Monitoring duration in ms (monitor only, default: 5000)",
+      description: "Duration in ms (monitor or trace_start). Trace windows are capped at 15000ms.",
     },
     interval: {
       type: "number",

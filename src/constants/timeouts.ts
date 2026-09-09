@@ -44,6 +44,8 @@ export const SYNC = {
 export const PERFORMANCE = {
   MAX_MONITOR_DURATION_MS: 30_000,
   POLL_INTERVAL_MS: 500,
+  /** Native trace windows stay bounded to control trace volume and app perturbation. */
+  MAX_TRACE_DURATION_MS: 15_000,
 } as const;
 
 export const SCREEN = {

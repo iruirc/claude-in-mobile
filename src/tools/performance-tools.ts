@@ -1,13 +1,8 @@
 /**
  * Performance & Crash Monitor tools.
  *
- * Provides 6 tool handlers:
- *   - performance_snapshot: collect current metrics
- *   - performance_baseline: save snapshot as baseline
- *   - performance_compare: compare current vs baseline (PASS/FAIL)
- *   - performance_monitor: continuous monitoring over duration
- *   - performance_crashes: query crash/ANR logs
- *   - performance_framestats: collect GPU frame rendering statistics (Android only)
+ * Provides Performance Lab handlers for metrics, baselines, monitoring,
+ * crashes, Android framestats, native traces, heap snapshots, and heap diffs.
  */
 
 import type { ToolDefinition } from "./registry.js";
@@ -17,6 +12,17 @@ import { performanceCompare } from "./performance/compare.js";
 import { performanceMonitor } from "./performance/monitor.js";
 import { performanceCrashes } from "./performance/crashes.js";
 import { performanceFramestats } from "./performance/framestats.js";
+import {
+  performanceTraceDelete,
+  performanceTraceStart,
+  performanceTraceStatus,
+  performanceTraceStop,
+} from "./performance/trace.js";
+import {
+  performanceHeapCapture,
+  performanceHeapDelete,
+  performanceHeapDiff,
+} from "./performance/heap.js";
 
 export const performanceTools: ToolDefinition[] = [
   performanceSnapshot,
@@ -25,4 +31,11 @@ export const performanceTools: ToolDefinition[] = [
   performanceMonitor,
   performanceCrashes,
   performanceFramestats,
+  performanceTraceStart,
+  performanceTraceStop,
+  performanceTraceStatus,
+  performanceTraceDelete,
+  performanceHeapCapture,
+  performanceHeapDiff,
+  performanceHeapDelete,
 ];

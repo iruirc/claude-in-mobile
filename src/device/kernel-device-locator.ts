@@ -32,20 +32,18 @@ export interface KernelHandleView {
 /**
  * Collect adapters from a kernel handle into a Platform→adapter map.
  *
- * Plugins that expose an `adapter` field contribute one adapter per
- * `manifest.id`. Other plugins are skipped (e.g. future plugins with no
- * adapter-style integration). This is the bridge between the legacy facade
- * and the new plugin runtime used during the 3.11.x migration window.
+ * Plugins that expose an `adapter` field contribute one adapter under the
+ * adapter's platform id. Plugin ids may name the delivery package instead
+ * (`web`) while the public platform remains `browser`.
  */
 export function adaptersFromKernel(
   handle: KernelHandleView,
 ): Map<Platform, CorePlatformAdapter> {
   const adapters = new Map<Platform, CorePlatformAdapter>();
   for (const entry of handle.registry.list()) {
-    const id = entry.plugin.manifest.id as Platform;
     const adapter = entry.plugin.adapter;
     if (entry.state === "active" && adapter) {
-      adapters.set(id, adapter);
+      adapters.set(adapter.platform, adapter);
     }
   }
   return adapters;

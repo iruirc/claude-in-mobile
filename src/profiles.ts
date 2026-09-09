@@ -79,7 +79,7 @@ export const MODULE_METADATA: readonly ModuleMeta[] = [
   // Testing modules
   { name: "visual", description: "Visual regression testing — compare screenshots", category: "testing", actions: ["compare", "baseline", "diff", "report"] },
   { name: "accessibility", description: "Accessibility audit — WCAG checks, element validation", category: "testing", actions: ["audit", "check", "summary", "rules"] },
-  { name: "performance", description: "Performance monitoring — snapshots, baselines, crashes, framestats", category: "testing", actions: ["snapshot", "baseline", "compare", "monitor", "crashes", "framestats"] },
+  { name: "performance", description: "Performance Lab — metrics, crashes, native traces, heap snapshots and diffs", category: "testing", actions: ["snapshot", "baseline", "compare", "monitor", "crashes", "framestats", "trace_start", "trace_stop", "trace_status", "trace_delete", "heap_capture", "heap_diff", "heap_delete"] },
 
   // Automation modules
   { name: "recorder", description: "Record and replay interaction sequences", category: "automation", actions: ["start", "stop", "play", "list", "delete"] },

@@ -8,6 +8,19 @@ export type {
   FileTransferAdapter,
   UrlOpeningAdapter,
   SyncScreenshotAdapter,
+  PerformanceTraceAdapter,
+  PerformanceTraceStartOptions,
+  PerformanceTraceHandle,
+  PerformanceTraceCapture,
+  PerformanceTraceSummary,
+  PerformanceTraceFrameStats,
+  PerformanceTracePreset,
+  PerformanceTraceFormat,
+  HeapSnapshotAdapter,
+  HeapSnapshotOptions,
+  HeapSnapshotCapture,
+  HeapSnapshotSummary,
+  HeapSnapshotFormat,
   PlatformAdapter,
 } from "./platform-adapter.js";
 
@@ -20,6 +33,10 @@ export {
   hasFileTransfer,
   hasUrlOpening,
   hasSyncScreenshot,
+  hasPerformanceTrace,
+  requirePerformanceTrace,
+  hasHeapSnapshot,
+  requireHeapSnapshot,
 } from "./platform-adapter.js";
 
 // Concrete adapters

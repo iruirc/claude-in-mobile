@@ -71,6 +71,20 @@ describe("DeviceManager adapter ownership", () => {
     expect(manager.getAdapter("android")).toBe(adapter);
   });
 
+  it("routes a plugin adapter by its public platform id", () => {
+    const adapter = disposableAdapter("browser", vi.fn());
+    const manager = DeviceManager.fromKernel({
+      registry: {
+        list: () => [{
+          state: "active" as const,
+          plugin: { manifest: { id: "web" }, adapter },
+        }],
+      },
+    });
+
+    expect(manager.getAdapter("browser")).toBe(adapter);
+  });
+
   it("does not expose adapters from failed plugins", () => {
     const adapter = disposableAdapter("android", vi.fn());
     const manager = DeviceManager.fromKernel({
