@@ -325,16 +325,9 @@ jobs:
     # stable tap must not be jumped to a dev build. verify-checksums depends on
     # this job, so it is skipped for prereleases too.
     if: needs.setup.outputs.prerelease == 'false'
-    # Publish the formula to BOTH taps so users on either can upgrade: the
-    # unified tap (flat root layout) and the legacy per-product tap (Formula/
-    # subdir). HOMEBREW_TAP_TOKEN must have write access to BOTH repos.
-    strategy:
-      matrix:
-        include:
-          - repo: AlexGladkov/homebrew-tap
-            formula: mcp-devices.rb
-          - repo: AlexGladkov/homebrew-claude-in-mobile
-            formula: Formula/mcp-devices.rb
+    # Publish only to the canonical unified tap. The retired per-product tap is
+    # read-only for this token; keeping it in the matrix made otherwise healthy
+    # releases red and prevented checksum verification.
 
     steps:
       - name: Extract version from tag
@@ -371,7 +364,7 @@ jobs:
       - name: Checkout Homebrew tap
         uses: actions/checkout@v7
         with:
-          repository: ${{ matrix.repo }}
+          repository: AlexGladkov/homebrew-tap
           token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
           path: homebrew-tap
 
@@ -380,7 +373,7 @@ jobs:
         env:
           SHA_MAP: ${{ steps.sha.outputs.map }}
           VERSION: ${{ steps.version.outputs.version }}
-          FORMULA: ${{ matrix.formula }}
+          FORMULA: mcp-devices.rb
         run: |
           python3 - <<'PYTHON'
           import json, os, re
@@ -443,7 +436,7 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add "${{ matrix.formula }}"
+          git add "mcp-devices.rb"
           git diff --cached --quiet && exit 0
           git commit -m "Update mcp-devices to ${{ steps.version.outputs.version }}"
           git push
