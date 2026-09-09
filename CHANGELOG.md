@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [4.2.1] — 2026-09-09
+
+### Fixed
+- **#69 — release workflow failed after successful GitHub/npm publication.**
+  Root cause: the Homebrew matrix still pushed to the retired
+  `AlexGladkov/homebrew-claude-in-mobile` repository, where
+  `HOMEBREW_TAP_TOKEN` receives HTTP 403. Releases now update only the
+  canonical `AlexGladkov/homebrew-tap`, allowing checksum verification to run.
+
 ## [4.2.0] — 2026-09-09
 
 ### Added
