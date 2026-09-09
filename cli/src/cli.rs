@@ -1304,7 +1304,78 @@ pub enum Commands {
         device: Option<String>,
     },
 
-    // ===== Performance commands (Android-only) =====
+    // ===== Performance commands =====
+    /// Capture a bounded Perfetto or xctrace recording
+    PerfTrace {
+        /// Native platform: android or ios (browser tracing is MCP-only)
+        #[arg(long, value_parser = ["android", "ios"])]
+        platform: String,
+
+        /// Android package name
+        #[arg(long)]
+        package: Option<String>,
+
+        /// iOS bundle identifier
+        #[arg(long)]
+        bundle_id: Option<String>,
+
+        /// Capture preset: ui-jank or startup
+        #[arg(long, default_value = "ui-jank", value_parser = ["ui-jank", "startup"])]
+        preset: String,
+
+        /// Capture duration in milliseconds
+        #[arg(long, default_value_t = 5_000, value_parser = clap::value_parser!(u64).range(1_000..=15_000))]
+        duration_ms: u64,
+
+        /// Destination artifact path (must not already exist)
+        #[arg(short, long)]
+        output: String,
+
+        /// Android device serial
+        #[arg(long)]
+        device: Option<String>,
+
+        /// Booted iOS Simulator name or UDID
+        #[arg(long)]
+        simulator: Option<String>,
+    },
+
+    /// Capture an Android HPROF or iOS Instruments Allocations artifact
+    PerfHeapCapture {
+        /// Native platform: android or ios (browser HeapProfiler is MCP-only)
+        #[arg(long, value_parser = ["android", "ios"])]
+        platform: String,
+
+        /// Android package name
+        #[arg(long)]
+        package: Option<String>,
+
+        /// iOS bundle identifier
+        #[arg(long)]
+        bundle_id: Option<String>,
+
+        /// Destination artifact path (must not already exist)
+        #[arg(short, long)]
+        output: String,
+
+        /// Android device serial
+        #[arg(long)]
+        device: Option<String>,
+
+        /// Booted iOS Simulator name or UDID
+        #[arg(long)]
+        simulator: Option<String>,
+    },
+
+    /// Compare two native heap artifacts by file size
+    PerfHeapDiff {
+        /// Earlier HPROF or xctrace Allocations artifact
+        before: String,
+
+        /// Later HPROF or xctrace Allocations artifact
+        after: String,
+    },
+
     /// Capture memory/CPU/battery/framestats snapshot for a package (Android only)
     PerfSnapshot {
         /// Package name (e.g. com.example.app)

@@ -7,6 +7,7 @@ pub mod config;
 mod device;
 mod doctor;
 mod flow;
+mod performance;
 pub mod recorder;
 mod setup;
 mod store;
@@ -722,7 +723,46 @@ pub fn run(command: Commands) -> Result<()> {
             }
         }
 
-        // -- Performance commands (Android-only) ------------------------------
+        // -- Performance commands ---------------------------------------------
+        Commands::PerfTrace {
+            platform,
+            package,
+            bundle_id,
+            preset,
+            duration_ms,
+            output,
+            device,
+            simulator,
+        } => performance::trace(
+            &platform,
+            package.as_deref(),
+            bundle_id.as_deref(),
+            &preset,
+            duration_ms,
+            &output,
+            device.as_deref(),
+            simulator.as_deref(),
+        ),
+
+        Commands::PerfHeapCapture {
+            platform,
+            package,
+            bundle_id,
+            output,
+            device,
+            simulator,
+        } => performance::heap_capture(
+            &platform,
+            package.as_deref(),
+            bundle_id.as_deref(),
+            &output,
+            device.as_deref(),
+            simulator.as_deref(),
+        ),
+
+        Commands::PerfHeapDiff { before, after } => performance::heap_diff(&before, &after),
+
+        // -- Android performance summaries ------------------------------------
         Commands::PerfSnapshot { package, device } => {
             device::perf_snapshot(&package, device.as_deref())
         }
