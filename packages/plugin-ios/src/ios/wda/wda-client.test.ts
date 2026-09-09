@@ -138,3 +138,37 @@ describe("WDAClient — degraded envelope must throw, not leak the wrapper", () 
     );
   });
 });
+
+/**
+ * The UI tree is only useful if it carries geometry: every downstream consumer
+ * (iosTreeToUiElements -> ui(tree), hints, flow) drops nodes without a rect.
+ * Real WDA answers /wda/accessibleSource without rects at all, and
+ * /source?format=json with them.
+ */
+describe("WDAClient — the UI tree must carry element geometry", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+  });
+
+  it("reads a source that carries rects, not the geometry-free accessibility tree", async () => {
+    const client = new WDAClient(8100);
+    (client as unknown as { sessionId: string | null }).sessionId = "TEST";
+    vi.stubGlobal("fetch", vi.fn(async (url: unknown) =>
+      String(url).includes("/wda/accessibleSource")
+        ? jsonResponse({ status: 0, value: { type: "XCUIElementTypeApplication", name: "App", children: [] } })
+        : jsonResponse({
+            status: 0,
+            value: {
+              type: "XCUIElementTypeApplication",
+              rect: { x: 0, y: 0, width: 390, height: 844 },
+              children: [],
+            },
+          }),
+    ));
+
+    const tree = await client.getAccessibleSource();
+
+    expect((tree as { rect?: unknown }).rect).toBeDefined();
+  });
+});

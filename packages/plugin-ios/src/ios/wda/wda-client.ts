@@ -74,9 +74,11 @@ export class WDAClient {
       throw new Error("No active WDA session");
     }
 
+    // Page source, not /wda/accessibleSource: the accessibility tree carries no
+    // rects, and every consumer downstream drops nodes that have no geometry.
     const response = await this.request(
       "GET",
-      `/session/${this.sessionId}/wda/accessibleSource`
+      `/session/${this.sessionId}/source?format=json`
     );
     // Trust boundary: a degraded session returns 200 with {value:null}. Reject
     // it here instead of casting the envelope to a tree (which yields an empty
