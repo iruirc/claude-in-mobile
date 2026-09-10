@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [4.3.0] — 2026-09-10
+
 ### Fixed
 - **REPL sessions failed to start relative commands in WSL.** The native
   supervisor now passes its allowlisted `PATH`, `HOME`, locale, and timezone

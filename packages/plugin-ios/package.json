@@ -1,6 +1,6 @@
 {
   "name": "@mcp-devices/plugin-ios",
-  "version": "4.2.3",
+  "version": "4.3.0",
   "description": "iOS platform plugin for mcp-devices (simctl + WebDriverAgent + go-ios).",
   "type": "module",
   "main": "dist/index.js",

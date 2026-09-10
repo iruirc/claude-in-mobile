@@ -1,6 +1,6 @@
 {
   "name": "@mcp-devices/plugin-aurora",
-  "version": "4.2.3",
+  "version": "4.3.0",
   "description": "Aurora OS platform plugin for mcp-devices (audb).",
   "type": "module",
   "main": "dist/index.js",

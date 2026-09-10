@@ -21,7 +21,7 @@ const TOOL_NAMES = [
 export const HARMONY_PLUGIN_MANIFEST: PluginManifest = {
   id: "harmony",
   name: "HarmonyOS Next",
-  version: "4.2.3",
+  version: "4.3.0",
   apiVersion: "1",
   capabilities: [
     "screen",
