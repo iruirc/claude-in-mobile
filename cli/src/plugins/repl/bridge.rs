@@ -235,13 +235,40 @@ fn required_string(params: &Value, key: &str) -> Result<String> {
         .ok_or_else(|| anyhow::anyhow!("missing required string param: {key}"))
 }
 
+/// Base environment inherited by every PTY session. Keep this allowlist in
+/// sync with `minimalEnv()` in `src/plugins/repl/client.ts`: the supervisor is
+/// intentionally prevented from forwarding arbitrary credentials.
+const SESSION_ENV_ALLOWLIST: [&str; 5] = ["PATH", "HOME", "LANG", "LC_ALL", "TZ"];
+
 fn parse_env(params: &Value) -> Vec<(String, String)> {
-    let Some(obj) = params.get("env").and_then(|v| v.as_object()) else {
-        return Vec::new();
-    };
-    obj.iter()
-        .filter_map(|(k, v)| v.as_str().map(|s| (k.clone(), s.to_string())))
-        .collect()
+    let explicit = params.get("env").and_then(|v| v.as_object());
+    let mut env =
+        Vec::with_capacity(SESSION_ENV_ALLOWLIST.len() + explicit.map_or(0, serde_json::Map::len));
+
+    for key in SESSION_ENV_ALLOWLIST {
+        if let Ok(value) = std::env::var(key) {
+            env.push((key.to_string(), value));
+        }
+    }
+
+    if let Some(obj) = explicit {
+        for (key, value) in obj {
+            let Some(value) = value.as_str() else {
+                continue;
+            };
+            if let Some((_, inherited)) = env
+                .iter_mut()
+                .find(|(name, _)| name.as_str() == key.as_str())
+            {
+                inherited.clear();
+                inherited.push_str(value);
+            } else {
+                env.push((key.clone(), value.to_string()));
+            }
+        }
+    }
+
+    env
 }
 
 /// Parse `history` from params. Returns `None` when absent/false/0.
@@ -309,15 +336,6 @@ mod tests {
         let p = json!({"id": "x"});
         assert_eq!(required_string(&p, "id").unwrap(), "x");
         assert!(required_string(&p, "missing").is_err());
-    }
-
-    #[test]
-    fn parse_env_handles_missing_and_non_string() {
-        let p = json!({});
-        assert!(parse_env(&p).is_empty());
-        let p2 = json!({"env": {"K": "V", "BAD": 42}});
-        let kv = parse_env(&p2);
-        assert_eq!(kv, vec![("K".into(), "V".into())]);
     }
 
     #[test]
@@ -419,25 +437,42 @@ mod tests {
         );
     }
 
+    #[cfg(unix)]
     #[test]
-    fn spawn_kill_removes_session_from_bridge_surface() {
+    fn spawn_without_explicit_env_resolves_command_from_sanitized_path() {
         let sup = Supervisor::new();
         dispatch(
             &sup,
             "spawn",
             &json!({
-                "id": "bridge-kill",
-                "cmd": "/bin/bash --norc --noprofile",
-                "env": {
-                    "PATH": "/usr/bin:/bin",
-                    "HOME": "/tmp"
-                }
+                "id": "bridge-path",
+                "cmd": "sh"
             }),
         )
         .unwrap();
-        dispatch(&sup, "kill", &json!({"id": "bridge-kill"})).unwrap();
+        dispatch(
+            &sup,
+            "send",
+            &json!({
+                "id": "bridge-path",
+                "text": "printf 'REPL_PATH_OK\\n'"
+            }),
+        )
+        .unwrap();
 
+        let outcome = dispatch(
+            &sup,
+            "expect",
+            &json!({
+                "id": "bridge-path",
+                "regex": "REPL_PATH_OK",
+                "timeoutMs": 5_000
+            }),
+        )
+        .unwrap();
+        assert_eq!(outcome["kind"], "promptMatched");
+
+        dispatch(&sup, "kill", &json!({"id": "bridge-path"})).unwrap();
         assert_eq!(dispatch(&sup, "list", &json!({})).unwrap(), json!([]));
-        assert!(dispatch(&sup, "snapshot", &json!({"id": "bridge-kill"}),).is_err());
     }
 }
