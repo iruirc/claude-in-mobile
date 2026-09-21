@@ -13,17 +13,19 @@ import { safeTerminalText } from "../../utils/terminal-controls.js";
  * WDA returns a nested tree. Container nodes (the root `XCUIElementTypeApplication`,
  * windows, layout groups) frequently carry a `rect` with zero width/height — or no
  * `rect` at all — while still holding paintable descendants. Leaf/interactive nodes
- * carry a real rect. Every field is optional because WDA omits empties.
+ * carry a real rect. Every field is optional, and a present field may hold an
+ * explicit `null`: WDA writes `null` for empty label/value/name instead of
+ * dropping the key.
  */
 export interface WdaNode {
-  type?: string;
-  label?: string;
-  value?: string;
-  name?: string;
-  identifier?: string;
-  password?: boolean;
-  enabled?: boolean;
-  selected?: boolean;
+  type?: string | null;
+  label?: string | null;
+  value?: string | null;
+  name?: string | null;
+  identifier?: string | null;
+  password?: boolean | null;
+  enabled?: boolean | null;
+  selected?: boolean | null;
   rect?: { x?: number; y?: number; width?: number; height?: number };
   children?: WdaNode[];
 }
@@ -53,14 +55,17 @@ const wdaRectSchema = z.object({
   height: z.number().finite().optional(),
 }).passthrough();
 const wdaNodeSchema = z.object({
-  type: z.string().max(65_536).optional(),
-  label: z.string().max(65_536).optional(),
-  value: z.string().max(65_536).optional(),
-  name: z.string().max(65_536).optional(),
-  identifier: z.string().max(65_536).optional(),
-  password: z.boolean().optional(),
-  enabled: z.boolean().optional(),
-  selected: z.boolean().optional(),
+  // `.nullish()`, not `.optional()`: WDA emits `"label": null` for a node
+  // without a label rather than omitting the key, so `.optional()` rejects
+  // every real node and the whole tree is reported as degraded.
+  type: z.string().max(65_536).nullish(),
+  label: z.string().max(65_536).nullish(),
+  value: z.string().max(65_536).nullish(),
+  name: z.string().max(65_536).nullish(),
+  identifier: z.string().max(65_536).nullish(),
+  password: z.boolean().nullish(),
+  enabled: z.boolean().nullish(),
+  selected: z.boolean().nullish(),
   rect: wdaRectSchema.optional(),
   children: z.array(z.unknown()).max(50_000).optional(),
 }).passthrough().refine(
@@ -238,7 +243,7 @@ export function formatIOSUITree(tree: unknown, indent = 0): string {
       if (node.identifier) {
         parts.push(`id=${JSON.stringify(redactIdentifier ? REDACTED : safeTerminalText(node.identifier))}`);
       }
-      if (node.enabled !== undefined) parts.push(`enabled=${node.enabled}`);
+      if (node.enabled != null) parts.push(`enabled=${node.enabled}`);
       if (node.rect) parts.push(`@ (${node.rect.x ?? 0}, ${node.rect.y ?? 0})`);
       lines.push(`${"  ".repeat(Math.min(depth, 100))}${parts.join(" ")}`);
     }
