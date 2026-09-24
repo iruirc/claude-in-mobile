@@ -138,6 +138,20 @@ function bareType(type: string | null | undefined): string {
 }
 
 /**
+ * First StaticText label under `node`. A Cell that is not itself an
+ * accessibility element carries no label; its caption lives in a child.
+ */
+function captionOf(node: WdaNode): string {
+  const stack = [...(node.children ?? [])].reverse();
+  for (let visited = 0; stack.length > 0 && visited < 200; visited++) {
+    const child = stack.pop()!;
+    if (bareType(child.type) === "StaticText" && child.label) return child.label;
+    stack.push(...[...(child.children ?? [])].reverse());
+  }
+  return "";
+}
+
+/**
  * Convert an iOS accessibility tree (from WDA) to UiElement[].
  *
  * Robust against two real-world WDA quirks that previously produced `[]`:
@@ -171,16 +185,18 @@ export function iosTreeToUiElements(
       const width = rect.width ?? 0;
       const height = rect.height ?? 0;
       if (width > 0 && height > 0) {
+        const clickable = node.enabled !== false && CLICKABLE_TYPES.has(bareType(node.type));
+        const ownText = node.label ?? node.value ?? "";
         elements.push({
           index: index.value++,
           resourceId: node.identifier ?? "",
           className: node.type ?? "",
           packageName: "",
-          text: node.label ?? node.value ?? "",
+          text: ownText || (clickable && !node.name ? captionOf(node) : ""),
           contentDesc: node.name ?? "",
           checkable: false,
           checked: false,
-          clickable: node.enabled !== false && CLICKABLE_TYPES.has(bareType(node.type)),
+          clickable,
           enabled: node.enabled !== false,
           focusable: node.enabled !== false,
           focused: false,
