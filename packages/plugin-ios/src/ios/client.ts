@@ -22,7 +22,6 @@ import { listPhysicalDevices } from "./go-ios/index.js";
 import { wdaRequiredError } from "./wda-errors.js";
 import {
   ACTIVATE_SIMULATOR_OSASCRIPT_ARGS,
-  HOME_KEY_OSASCRIPT_ARGS,
   mapKey,
 } from "./keymap.js";
 import {
@@ -341,31 +340,29 @@ export class IosClient {
   /**
    * Press key
    *
+   * Home goes through WDA: the Cmd+Shift+H shortcut needs a Simulator.app
+   * window, which a headless simulator does not have.
+   *
    * SECURITY: AppleScript invocations use execFileSync("osascript", ["-e", literal])
    * — the script literal is a single argv slot, so /bin/sh never parses its contents.
-   * The `key` argument is whitelisted via keyMap; only fixed AppleScript literals reach
-   * osascript.
    */
-  pressKey(key: string): void {
-    const mappedKey = mapKey(key);
-
-    // Use simctl io for button presses
-    if (mappedKey === "home") {
-      this.execArgs(["io", this.targetDevice, "enumerate"]);
-      // Trigger home button via keyboard shortcut
-      execFileSync(
-        "osascript",
-        [...HOME_KEY_OSASCRIPT_ARGS],
-        { encoding: "utf-8", timeout: SIMCTL_EXEC_TIMEOUT_MS, maxBuffer: 64 * 1024 }
-      );
-    } else {
-      // Try generic approach
-      execFileSync(
-        "osascript",
-        [...ACTIVATE_SIMULATOR_OSASCRIPT_ARGS],
-        { encoding: "utf-8", timeout: SIMCTL_EXEC_TIMEOUT_MS, maxBuffer: 64 * 1024 }
-      );
+  async pressKey(key: string, deviceIdOverride?: string): Promise<void> {
+    if (mapKey(key) === "home") {
+      try {
+        const wdaClient = await this.ensureWDA(deviceIdOverride);
+        await wdaClient.pressHome();
+      } catch (error: unknown) {
+        throw wdaRequiredError("Home", error);
+      }
+      return;
     }
+
+    // Try generic approach
+    execFileSync(
+      "osascript",
+      [...ACTIVATE_SIMULATOR_OSASCRIPT_ARGS],
+      { encoding: "utf-8", timeout: SIMCTL_EXEC_TIMEOUT_MS, maxBuffer: 64 * 1024 }
+    );
   }
 
   /**

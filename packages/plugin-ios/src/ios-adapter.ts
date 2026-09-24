@@ -154,8 +154,8 @@ export class IosAdapter
     await this.clientFor(deviceId).inputText(text, deviceId);
   }
 
-  async pressKey(key: string): Promise<void> {
-    await this.client.pressKey(key);
+  async pressKey(key: string, _targetPid?: number, deviceId?: string): Promise<void> {
+    await this.clientFor(deviceId).pressKey(key, deviceId);
   }
 
   // ============ Screenshot ============
