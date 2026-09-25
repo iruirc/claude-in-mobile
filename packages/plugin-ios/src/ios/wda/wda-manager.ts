@@ -106,7 +106,7 @@ export class WDAManager {
     }
 
     const wdaPath = await this.discoverWDA();
-    if (isSimulator) await this.buildWDAIfNeeded(wdaPath);
+    if (isSimulator) await this.buildWDAIfNeeded(wdaPath, deviceId);
     const port = await this.reservePort();
     let instance: ManagedInstance | undefined;
     let client: WDAClient | undefined;
@@ -164,8 +164,8 @@ export class WDAManager {
     );
   }
 
-  private resolveSimulatorDestination(devices: IosDevice[]): string {
-    const device = pickBuildSimulator(devices);
+  private resolveSimulatorDestination(devices: IosDevice[], targetId?: string): string {
+    const device = pickBuildSimulator(devices, targetId);
     if (!device) {
       throw new Error(
         "No iOS simulator available to build WebDriverAgent against. "
@@ -181,10 +181,10 @@ export class WDAManager {
    * instead of paying another pass. Async, so the MCP server keeps answering
    * while a cold build runs.
    */
-  private buildWDAIfNeeded(wdaPath: string): Promise<void> {
+  private buildWDAIfNeeded(wdaPath: string, targetId?: string): Promise<void> {
     const existing = this.buildPromises.get(wdaPath);
     if (existing) return existing;
-    const build = this.buildWDA(wdaPath);
+    const build = this.buildWDA(wdaPath, targetId);
     this.buildPromises.set(wdaPath, build);
     build.catch(() => {
       if (this.buildPromises.get(wdaPath) === build) this.buildPromises.delete(wdaPath);
@@ -192,9 +192,9 @@ export class WDAManager {
     return build;
   }
 
-  private async buildWDA(wdaPath: string): Promise<void> {
+  private async buildWDA(wdaPath: string, targetId?: string): Promise<void> {
     const devices = parseDevicesJson(execSimctl(["list", "devices", "-j"]));
-    const destination = this.resolveSimulatorDestination(devices);
+    const destination = this.resolveSimulatorDestination(devices, targetId);
     console.error("Preparing WebDriverAgent for first use...");
     try {
       await execFileAsync("xcodebuild", [
