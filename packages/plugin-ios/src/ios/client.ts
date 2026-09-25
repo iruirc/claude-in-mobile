@@ -304,6 +304,24 @@ export class IosClient {
     }
   }
 
+  /** Press-and-hold at the start, then drag to the end without lifting. Coordinates in points. */
+  async drag(
+    x1: number,
+    y1: number,
+    x2: number,
+    y2: number,
+    holdMs: number = 600,
+    durationMs: number = 500,
+    deviceIdOverride?: string,
+  ): Promise<void> {
+    try {
+      const wdaClient = await this.ensureWDA(deviceIdOverride);
+      await wdaClient.drag(x1, y1, x2, y2, holdMs, durationMs);
+    } catch (error: unknown) {
+      throw wdaRequiredError("Drag", error);
+    }
+  }
+
   /**
    * Pinch around a centre point: scale > 1 spreads the fingers (zoom in), < 1 closes them.
    * `startDistance` is the initial finger spread in points; both fingers stay on screen.

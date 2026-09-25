@@ -361,6 +361,35 @@ export class WDAClient {
     });
   }
 
+  /**
+   * Press at (x1, y1) for `hold` ms, move to (x2, y2) over `duration` ms and
+   * rest there before lifting. XCTest's own press-then-drag is used: the same
+   * gesture sent as W3C actions reaches UIKit as a pan, not a drag session.
+   */
+  async drag(
+    x1: number,
+    y1: number,
+    x2: number,
+    y2: number,
+    hold: number = 600,
+    duration: number = 500
+  ): Promise<void> {
+    if (!this.sessionId) {
+      throw new Error("No active WDA session");
+    }
+
+    const distance = Math.hypot(x2 - x1, y2 - y1);
+    await this.request("POST", `/session/${this.sessionId}/wda/pressAndDragWithVelocity`, {
+      fromX: x1,
+      fromY: y1,
+      toX: x2,
+      toY: y2,
+      pressDuration: hold / 1000,
+      velocity: Math.max(1, distance / Math.max(duration / 1000, 0.01)),
+      holdDuration: 0.3,
+    });
+  }
+
   /** Two fingers on a horizontal line through (cx, cy), spreading from startDistance to endDistance apart. */
   async pinch(
     cx: number,

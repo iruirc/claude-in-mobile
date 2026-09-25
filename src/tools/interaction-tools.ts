@@ -230,6 +230,45 @@ export const interactionTools: ToolDefinition[] = [
   }),
 
   defineTool({
+    name: "input_drag",
+    description:
+      "iOS only: press and hold at x1/y1, then drag to x2/y2 without lifting — the gesture that picks up and moves an item " +
+      "(a timeline clip, a home-screen icon) where swipe would scroll and long_press would open a menu. " +
+      "x1/y1/x2/y2 are screenshot-space like input_swipe and auto-scaled.",
+    schema: z.object({
+      x1: z.number().describe("Start X (screenshot pixel space)"),
+      y1: z.number().describe("Start Y (screenshot pixel space)"),
+      x2: z.number().describe("End X (screenshot pixel space)"),
+      y2: z.number().describe("End Y (screenshot pixel space)"),
+      hold: z.number().min(0).default(600).describe("How long to hold still at the start before moving, ms (default: 600)"),
+      duration: z.number().min(0).default(500).describe("Duration of the movement in ms (default: 500)"),
+      hints: z.boolean().default(true).describe("Return hints about what changed after the action."),
+      platform: platformEnum,
+      deviceId: deviceIdField,
+    }),
+    handler: async (args, ctx) => {
+      const { deviceId, platform: currentPlatform } = parseCommonArgs(args as Record<string, unknown>, ctx);
+      if (currentPlatform !== "ios") {
+        throw new ValidationError("input(action:'drag') is supported on iOS only.");
+      }
+      const iosClient = ctx.deviceManager.getIosClient(deviceId);
+      if (typeof iosClient.drag !== "function") {
+        throw new ValidationError("The installed iOS plugin does not support drag.");
+      }
+
+      const p1 = await applyScale(args.x1, args.y1, currentPlatform, ctx, deviceId);
+      const p2 = await applyScale(args.x2, args.y2, currentPlatform, ctx, deviceId);
+      await iosClient.drag(p1.x, p1.y, p2.x, p2.y, args.hold, args.duration, deviceId);
+      ctx.invalidateUiTreeCache(currentPlatform);
+      let result = `Dragged from (${p1.x}, ${p1.y}) to (${p2.x}, ${p2.y}) after a ${args.hold}ms hold`;
+      if (args.hints) {
+        result += await ctx.generateActionHints(args.platform);
+      }
+      return textResult(result);
+    },
+  }),
+
+  defineTool({
     name: "input_pinch",
     description:
       "iOS only: two-finger pinch around a centre point. scale > 1 spreads the fingers (zoom in), scale < 1 closes them (zoom out). " +

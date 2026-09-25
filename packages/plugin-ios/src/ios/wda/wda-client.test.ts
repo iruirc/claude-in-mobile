@@ -213,3 +213,30 @@ describe("WDAClient.pinch", () => {
     expect(moves).toEqual([[150, 50], [250, 350]]);
   });
 });
+
+describe("WDAClient.drag", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("presses for the hold, then drags at the speed that covers the distance in the duration", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ status: 0, value: null }));
+    vi.stubGlobal("fetch", fetchMock);
+    const client = new WDAClient(8100);
+    (client as unknown as { sessionId: string | null }).sessionId = "TEST";
+
+    await client.drag(100, 200, 400, 600, 700, 250);
+
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toBe("http://127.0.0.1:8100/session/TEST/wda/pressAndDragWithVelocity");
+    expect(JSON.parse(init.body as string)).toEqual({
+      fromX: 100,
+      fromY: 200,
+      toX: 400,
+      toY: 600,
+      pressDuration: 0.7,
+      velocity: 2000,
+      holdDuration: 0.3,
+    });
+  });
+});
