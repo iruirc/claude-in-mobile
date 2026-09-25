@@ -7,7 +7,7 @@ import { textResult } from "../../utils/tool-result.js";
 
 export const uiFind = defineTool({
   name: "ui_find",
-  description: "Find UI elements by text, resourceId, className, or label",
+  description: "Find UI elements by text, resourceId, className, or label. Coordinates are device coordinates (iOS points, Android pixels): pass them to input with coords:'device'.",
   schema: z.object({
     text: z.string().optional().describe("Find by text (partial match, case-insensitive)"),
     label: z.string().optional().describe("iOS: Find by accessibility label"),

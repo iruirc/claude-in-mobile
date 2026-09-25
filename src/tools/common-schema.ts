@@ -33,3 +33,11 @@ export const deviceIdField = z
   .string()
   .describe("Target device ID for multi-device. If omitted, uses active device.")
   .optional();
+
+export const coordsField = z
+  .enum(["screenshot", "device"])
+  .default("screenshot")
+  .describe(
+    "Space of raw x/y: 'screenshot' (default) — pixels of the last screen capture of this device; " +
+      "'device' — iOS points / Android pixels, as ui(action:'tree'|'find') report them.",
+  );

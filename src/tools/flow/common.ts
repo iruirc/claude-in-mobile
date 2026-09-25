@@ -1,7 +1,7 @@
 import { getRegisteredToolNames } from "../registry.js";
 import type { ToolContext } from "../context.js";
 import { parseUiHierarchy, UiElement } from "../../ui-tree/ui-parser.js";
-import { applyScale } from "../helpers/resolve-element.js";
+import { mapToDevice, describeMapping } from "../helpers/resolve-element.js";
 import { z } from "../define-tool.js";
 import { FLOW } from "../../constants/timeouts.js";
 
@@ -136,9 +136,11 @@ export async function turboFastTrack(
   if (actionKind === "tap"
       && typeof args.x === "number" && typeof args.y === "number"
       && !args.text && !args.resourceId && !args.index && !args.label) {
-    const scaled = await applyScale(args.x, args.y, platform, ctx, deviceId);
+    const coords = args.coords === "device" ? "device" : "screenshot";
+    const scaled = await mapToDevice(args.x, args.y, platform, ctx, deviceId, coords);
     actionArgs = ["input", "tap", String(scaled.x), String(scaled.y)];
-    message = `Tapped at (${scaled.x}, ${scaled.y})`;
+    message = `Tapped at (${scaled.x}, ${scaled.y})`
+      + describeMapping(platform, [{ raw: { x: args.x, y: args.y }, mapped: scaled }], coords);
   }
 
   // input_key
