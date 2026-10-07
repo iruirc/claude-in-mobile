@@ -231,15 +231,17 @@ export const interactionTools: ToolDefinition[] = [
     name: "input_drag",
     description:
       "iOS only: press and hold at x1/y1, then drag to x2/y2 without lifting — the gesture that picks up and moves an item " +
-      "(a timeline clip, a home-screen icon) where swipe would scroll and long_press would open a menu. " +
+      "(a timeline clip, a list row) where swipe would scroll and long_press would open a menu. " +
+      "Keep the hold short: past ~600 ms an item with a context menu opens it, and the release then picks a menu item " +
+      "(Delete, Mark as Completed) instead of dropping. " +
       "x1/y1/x2/y2 are screenshot-space like input_swipe and auto-scaled unless coords:'device'.",
     schema: z.object({
       x1: z.number().describe("Start X (space set by coords)"),
       y1: z.number().describe("Start Y (space set by coords)"),
       x2: z.number().describe("End X (space set by coords)"),
       y2: z.number().describe("End Y (space set by coords)"),
-      hold: z.number().min(0).default(600).describe("How long to hold still at the start before moving, ms (default: 600)"),
-      duration: z.number().min(0).default(500).describe("Duration of the movement in ms (default: 500)"),
+      hold: z.number().min(0).default(500).describe("How long to hold still at the start before moving, ms (default: 500)"),
+      duration: z.number().min(0).default(500).describe("Longest the movement takes, ms (default: 500); a short move goes faster"),
       hints: z.boolean().default(true).describe("Return hints about what changed after the action."),
       coords: coordsField,
       platform: platformEnum,

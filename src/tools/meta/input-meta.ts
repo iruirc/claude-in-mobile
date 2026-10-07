@@ -22,7 +22,7 @@ const { meta, aliases } = createMetaTool({
     key: { type: "string", description: "Key name: BACK, HOME, ENTER, TAB, DELETE, etc." },
     direction: { type: "string", enum: ["up", "down", "left", "right"], description: "Swipe direction" },
     duration: { type: "number", description: "Duration in ms (long_press default: 1000, swipe default: 300, drag and pinch default: 500)" },
-    hold: { type: "number", description: "drag: how long to hold still at the start before moving, ms (default: 600)" },
+    hold: { type: "number", description: "drag: how long to hold still at the start before moving, ms (default: 500; past ~600 a row with a context menu opens it instead)" },
     scale: { type: "number", description: "pinch: final finger spread relative to the initial one (> 1 zoom in, < 1 zoom out)" },
     distance: { type: "number", description: "pinch: initial finger spread (default: 200)" },
     interval: { type: "number", description: "Delay between taps in ms for double_tap (default: 100)" },

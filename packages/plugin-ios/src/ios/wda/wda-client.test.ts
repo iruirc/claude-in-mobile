@@ -239,4 +239,21 @@ describe("WDAClient.drag", () => {
       holdDuration: 0.3,
     });
   });
+
+  it("does not move a short drag slower than the context menu allows", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ status: 0, value: null }));
+    vi.stubGlobal("fetch", fetchMock);
+    const client = new WDAClient(8100);
+    (client as unknown as { sessionId: string | null }).sessionId = "TEST";
+
+    // 53 points over the default 500 ms is 106 pt/s; in Reminders that let the
+    // context menu open and the release delete the row.
+    await client.drag(219, 137, 219, 190);
+
+    const [, init] = fetchMock.mock.calls[0];
+    expect(JSON.parse(init.body as string)).toMatchObject({
+      pressDuration: 0.5,
+      velocity: 300,
+    });
+  });
 });

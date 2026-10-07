@@ -310,7 +310,7 @@ export class IosClient {
     y1: number,
     x2: number,
     y2: number,
-    holdMs: number = 600,
+    holdMs: number = 500,
     durationMs: number = 500,
     deviceIdOverride?: string,
   ): Promise<void> {
