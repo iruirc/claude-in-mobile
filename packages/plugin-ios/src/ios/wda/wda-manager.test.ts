@@ -2,7 +2,7 @@ import { EventEmitter } from "node:events";
 import type { ChildProcess } from "node:child_process";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { WDAManager } from "./wda-manager.js";
+import { WDAManager, wdaSearchPaths } from "./wda-manager.js";
 import type { WDAClient } from "./wda-client.js";
 
 interface TestInstance {
@@ -146,5 +146,38 @@ describe("WDAManager ownership", () => {
 
     expect(harness(manager).instances.get("device-a")).toBe(currentInstance);
     expect(harness(manager).instances.get("device-a")).not.toBe(oldInstance);
+  });
+});
+
+describe("wdaSearchPaths", () => {
+  const appium = [
+    "/h/.appium/node_modules/appium-xcuitest-driver/node_modules/appium-webdriveragent",
+    "/opt/homebrew/lib/node_modules/appium/node_modules/appium-xcuitest-driver/node_modules/appium-webdriveragent",
+    "/usr/local/lib/node_modules/appium/node_modules/appium-xcuitest-driver/node_modules/appium-webdriveragent",
+  ];
+
+  it("puts WDA_PATH first, then the global npm package, then the Appium installs", () => {
+    expect(wdaSearchPaths({ WDA_PATH: "/w" }, "/h", () => "/g")).toEqual([
+      "/w",
+      "/g/appium-webdriveragent",
+      "/opt/homebrew/lib/node_modules/appium-webdriveragent",
+      "/usr/local/lib/node_modules/appium-webdriveragent",
+      ...appium,
+    ]);
+  });
+
+  it("skips an empty WDA_PATH", () => {
+    expect(wdaSearchPaths({ WDA_PATH: "" }, "/h", () => "/g")[0]).toBe("/g/appium-webdriveragent");
+  });
+
+  it("keeps the fixed paths when npm is unavailable", () => {
+    const throwing = () => { throw new Error("spawn npm ENOENT"); };
+    expect(wdaSearchPaths({}, "/h", throwing)[0]).toBe("/opt/homebrew/lib/node_modules/appium-webdriveragent");
+    expect(wdaSearchPaths({}, "/h", () => undefined)[0]).toBe("/opt/homebrew/lib/node_modules/appium-webdriveragent");
+  });
+
+  it("lists a path once", () => {
+    const paths = wdaSearchPaths({}, "/h", () => "/opt/homebrew/lib/node_modules");
+    expect(paths.filter((p) => p === "/opt/homebrew/lib/node_modules/appium-webdriveragent")).toHaveLength(1);
   });
 });

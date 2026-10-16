@@ -3,7 +3,8 @@
  */
 
 const INSTALL_HINT =
-  "Install: npm install -g appium && appium driver install xcuitest\n" +
+  "Install: npm install -g appium-webdriveragent\n" +
+  "Or: npm install -g appium && appium driver install xcuitest\n" +
   "Or set WDA_PATH environment variable.";
 
 /**

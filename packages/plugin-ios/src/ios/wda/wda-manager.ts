@@ -18,6 +18,49 @@ const GO_IOS_BIN = process.env.GO_IOS_BIN ?? "ios";
 const RESERVED_PORTS = new Set<number>();
 const execFileAsync = promisify(execFile);
 
+const WDA_PACKAGE = "appium-webdriveragent";
+
+let cachedNpmRoot: string | undefined | null = null;
+
+/** `npm root -g`, asked once; undefined when npm is missing or fails. */
+function globalNpmRoot(): string | undefined {
+  if (cachedNpmRoot === null) {
+    try {
+      cachedNpmRoot = execFileSync("npm", ["root", "-g"], { encoding: "utf8", timeout: 10_000 }).trim() || undefined;
+    } catch {
+      cachedNpmRoot = undefined;
+    }
+  }
+  return cachedNpmRoot;
+}
+
+/**
+ * Where WebDriverAgent may be installed, in the order it is looked for: WDA_PATH, the package
+ * installed on its own (`npm install -g appium-webdriveragent`), then inside an Appium install.
+ */
+export function wdaSearchPaths(
+  env: NodeJS.ProcessEnv,
+  home: string,
+  npmRoot: () => string | undefined = globalNpmRoot,
+): string[] {
+  let root: string | undefined;
+  try {
+    root = npmRoot();
+  } catch {
+    root = undefined;
+  }
+  const paths = [
+    env.WDA_PATH,
+    root && path.join(root, WDA_PACKAGE),
+    `/opt/homebrew/lib/node_modules/${WDA_PACKAGE}`,
+    `/usr/local/lib/node_modules/${WDA_PACKAGE}`,
+    path.join(home, `.appium/node_modules/appium-xcuitest-driver/node_modules/${WDA_PACKAGE}`),
+    `/opt/homebrew/lib/node_modules/appium/node_modules/appium-xcuitest-driver/node_modules/${WDA_PACKAGE}`,
+    `/usr/local/lib/node_modules/appium/node_modules/appium-xcuitest-driver/node_modules/${WDA_PACKAGE}`,
+  ].filter(Boolean) as string[];
+  return [...new Set(paths)];
+}
+
 interface ManagedInstance extends WDAInstanceInfo {
   child: ChildProcess;
   generation: symbol;
@@ -142,22 +185,19 @@ export class WDAManager {
   }
 
   private async discoverWDA(): Promise<string> {
-    const searchPaths = [
-      process.env.WDA_PATH,
-      path.join(os.homedir(), ".appium/node_modules/appium-xcuitest-driver/node_modules/appium-webdriveragent"),
-      "/opt/homebrew/lib/node_modules/appium/node_modules/appium-xcuitest-driver/node_modules/appium-webdriveragent",
-      "/usr/local/lib/node_modules/appium/node_modules/appium-xcuitest-driver/node_modules/appium-webdriveragent",
-    ].filter(Boolean) as string[];
+    const searchPaths = wdaSearchPaths(process.env, os.homedir());
 
     for (const searchPath of searchPaths) {
       if (fs.existsSync(path.join(searchPath, "WebDriverAgent.xcodeproj"))) return searchPath;
     }
     throw new Error(
       "WebDriverAgent not found.\n\n" +
-      "Install Appium with XCUITest driver:\n" +
+      "Install it on its own:\n" +
+      "  npm install -g appium-webdriveragent\n" +
+      "Or with Appium and its XCUITest driver:\n" +
       "  npm install -g appium\n" +
-      "  appium driver install xcuitest\n\n" +
-      "Or set WDA_PATH environment variable.\n\n" +
+      "  appium driver install xcuitest\n" +
+      "Or set the WDA_PATH environment variable.\n\n" +
       `Search paths checked:\n${searchPaths.map((entry) =>
         `  - ${sanitizeErrorMessage(entry).slice(0, 1000)}`
       ).join("\n")}`,

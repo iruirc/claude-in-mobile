@@ -13,7 +13,7 @@ export class SimctlNotInstalledError extends MobileError {
 export class WdaNotInstalledError extends MobileError {
   constructor() {
     super(
-      "WebDriverAgent not found.\n\nInstall: npm install -g appium && appium driver install xcuitest\nOr set WDA_PATH environment variable.",
+      "WebDriverAgent not found.\n\nInstall: npm install -g appium-webdriveragent\nOr: npm install -g appium && appium driver install xcuitest\nOr set WDA_PATH environment variable.",
       "WDA_NOT_INSTALLED"
     );
   }
