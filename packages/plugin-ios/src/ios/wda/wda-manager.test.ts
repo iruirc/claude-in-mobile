@@ -2,7 +2,7 @@ import { EventEmitter } from "node:events";
 import type { ChildProcess } from "node:child_process";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { WDAManager, wdaSearchPaths } from "./wda-manager.js";
+import { WDAManager, npmRootOnce, wdaSearchPaths } from "./wda-manager.js";
 import type { WDAClient } from "./wda-client.js";
 
 interface TestInstance {
@@ -179,5 +179,26 @@ describe("wdaSearchPaths", () => {
   it("lists a path once", () => {
     const paths = wdaSearchPaths({}, "/h", () => "/opt/homebrew/lib/node_modules");
     expect(paths.filter((p) => p === "/opt/homebrew/lib/node_modules/appium-webdriveragent")).toHaveLength(1);
+  });
+});
+
+describe("npmRootOnce", () => {
+  // A failed lookup (no npm on the server's PATH yet, a timeout) must not stick for the life of the
+  // server: WebDriverAgent installed after it started would never be found.
+  it("asks npm again after a failure and keeps the root it found", () => {
+    const answers: Array<() => string> = [() => { throw new Error("spawn npm ETIMEDOUT"); }, () => "/g/lib/node_modules\n"];
+    let calls = 0;
+    const root = npmRootOnce(() => answers[calls++]());
+    expect(root()).toBeUndefined();
+    expect(root()).toBe("/g/lib/node_modules");
+    expect(root()).toBe("/g/lib/node_modules");
+    expect(calls).toBe(2);
+  });
+
+  it("asks again after an empty answer", () => {
+    let calls = 0;
+    const root = npmRootOnce(() => (++calls === 1 ? "  \n" : "/g"));
+    expect(root()).toBeUndefined();
+    expect(root()).toBe("/g");
   });
 });

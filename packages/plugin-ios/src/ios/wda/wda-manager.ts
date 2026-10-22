@@ -20,19 +20,26 @@ const execFileAsync = promisify(execFile);
 
 const WDA_PACKAGE = "appium-webdriveragent";
 
-let cachedNpmRoot: string | undefined | null = null;
-
-/** `npm root -g`, asked once; undefined when npm is missing or fails. */
-function globalNpmRoot(): string | undefined {
-  if (cachedNpmRoot === null) {
-    try {
-      cachedNpmRoot = execFileSync("npm", ["root", "-g"], { encoding: "utf8", timeout: 10_000 }).trim() || undefined;
-    } catch {
-      cachedNpmRoot = undefined;
+/**
+ * A lookup of `npm root -g` that keeps the first root it finds. A failure or an empty answer is not
+ * kept: npm may reach the server's PATH later, and WebDriverAgent installed then must still be found.
+ */
+export function npmRootOnce(ask: () => string): () => string | undefined {
+  let found: string | undefined;
+  return () => {
+    if (found === undefined) {
+      try {
+        found = ask().trim() || undefined;
+      } catch {
+        found = undefined;
+      }
     }
-  }
-  return cachedNpmRoot;
+    return found;
+  };
 }
+
+/** `npm root -g`; undefined when npm is missing or fails. */
+const globalNpmRoot = npmRootOnce(() => execFileSync("npm", ["root", "-g"], { encoding: "utf8", timeout: 10_000 }));
 
 /**
  * Where WebDriverAgent may be installed, in the order it is looked for: WDA_PATH, the package
